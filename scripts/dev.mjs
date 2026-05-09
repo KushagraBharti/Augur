@@ -11,22 +11,19 @@ const baseEnv = {
 const services = [
   {
     name: "frontend",
-    command: npmCommand(),
-    args: ["--workspace", "frontend", "run", "dev", "--", "-p", "3000"],
+    command: "npm --workspace frontend run dev -- -p 3000",
     env: baseEnv,
     url: "http://localhost:3000",
   },
   {
     name: "backend",
-    command: npmCommand(),
-    args: ["--workspace", "backend", "run", "start"],
+    command: "npm --workspace backend run start",
     env: { ...baseEnv, PORT: "3010" },
     url: "http://localhost:3010/health",
   },
   {
     name: "worker",
-    command: npmCommand(),
-    args: ["--workspace", "workers/ingest", "run", "start"],
+    command: "npm --workspace workers/ingest run start",
     env: { ...baseEnv, PORT: "3020" },
     url: "http://localhost:3020/health",
   },
@@ -56,9 +53,10 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 }
 
 function startService(service) {
-  const child = spawn(service.command, service.args, {
+  const child = spawn(service.command, {
     cwd: root,
     env: service.env,
+    shell: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -130,8 +128,4 @@ function unquote(value) {
   }
 
   return value;
-}
-
-function npmCommand() {
-  return process.platform === "win32" ? "npm.cmd" : "npm";
 }
