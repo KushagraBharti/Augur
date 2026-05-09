@@ -1,0 +1,22 @@
+{
+  "name": "augur",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "npm@11.11.1",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "workers/*"
+  ],
+  "scripts": {
+    "build": "npm --workspace apps/web run build",
+    "start": "npm --workspace workers/ingest run start",
+    "supabase": "supabase",
+    "supabase:types": "supabase gen types typescript --project-id tsikkexwjfbfafwmolna > packages/augur-core/src/database.types.ts",
+    "vercel": "vercel",
+    "railway": "railway"
+  },
+  "devDependencies": {
+    "supabase": "^2.98.2"
+  }
+}

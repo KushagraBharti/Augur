@@ -1,0 +1,10 @@
+.agents/
+.claude/
+.railway/
+.vercel/
+.next/
+**/.next/
+node_modules/
+.env
+.env.*
+!.env.example
