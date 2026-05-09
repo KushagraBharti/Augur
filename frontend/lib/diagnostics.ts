@@ -52,6 +52,7 @@ const OPTIONAL_ENV_KEYS = [
 type FetchResult = {
   body: unknown;
   contentType: string;
+  headers: Record<string, string>;
   ok: boolean;
   status: number;
   statusText: string;
@@ -123,6 +124,7 @@ async function fetchWithTimeout(
     return {
       body,
       contentType,
+      headers: Object.fromEntries(response.headers.entries()),
       ok: response.ok,
       status: response.status,
       statusText: response.statusText,
@@ -168,6 +170,42 @@ function sampleRecord(value: unknown, maxKeys = 10): Record<string, unknown> | u
   }
 
   return Object.fromEntries(Object.entries(record).slice(0, maxKeys));
+}
+
+function sampleRows(value: unknown, maxRows = 3, maxKeys = 12): unknown[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.slice(0, maxRows).map((row) => sampleRecord(row, maxKeys));
+}
+
+function decodeXmlText(value: string): string {
+  return value
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function parseRssItems(xml: string, maxItems = 5) {
+  return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)]
+    .slice(0, maxItems)
+    .map((match) => {
+      const itemXml = match[1] ?? "";
+      const valueFor = (tag: string) => {
+        const tagMatch = itemXml.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`));
+        return tagMatch ? decodeXmlText(tagMatch[1].trim()) : undefined;
+      };
+
+      return {
+        title: valueFor("title"),
+        link: valueFor("link") ?? valueFor("guid"),
+        description: valueFor("description"),
+      };
+    });
 }
 
 function bodyMessage(body: unknown): string | undefined {
@@ -478,40 +516,36 @@ async function checkFeatherlessToolCalling(): Promise<DiagnosticCheck> {
         model: envValue("FEATHERLESS_MODEL"),
         messages: [
           {
-            role: "system",
-            content:
-              "You are testing tool-call compatibility. Use the provided tool.",
-          },
-          {
             role: "user",
-            content: "Record that Augur setup diagnostics are online.",
+            content:
+              "What's the weather like in San Francisco? Use the get_current_weather tool.",
           },
         ],
         tools: [
           {
             type: "function",
             function: {
-              name: "record_setup_status",
-              description: "Records a service setup check result.",
+              name: "get_current_weather",
+              description: "Get the current weather in a given location",
               parameters: {
                 type: "object",
                 properties: {
-                  service: { type: "string" },
-                  status: { type: "string", enum: ["online", "offline"] },
-                  note: { type: "string" },
+                  location: {
+                    type: "string",
+                    description: "The city and state, e.g. San Francisco, CA",
+                  },
+                  unit: {
+                    type: "string",
+                    enum: ["celsius", "fahrenheit"],
+                    description: "The unit of temperature",
+                  },
                 },
-                required: ["service", "status"],
-                additionalProperties: false,
+                required: ["location"],
               },
             },
           },
         ],
-        tool_choice: {
-          type: "function",
-          function: { name: "record_setup_status" },
-        },
-        max_tokens: 128,
-        temperature: 0,
+        max_tokens: 512,
       })
     );
 
@@ -539,10 +573,69 @@ async function checkFeatherlessToolCalling(): Promise<DiagnosticCheck> {
         service: "Featherless",
         label: "Tool calling",
         summary:
-          "Featherless returned a response, but no tool call was emitted for the forced tool-call probe.",
+          "Featherless returned a response, but no native tool call was emitted for the official weather-tool probe.",
         latencyMs,
         details: { choiceCount: choices.length },
         sample: sampleRecord(message),
+      });
+    }
+
+    const toolCall = asRecord(toolCalls[0]);
+    const toolFunction = asRecord(toolCall?.function);
+    const toolArguments =
+      typeof toolFunction?.arguments === "string"
+        ? JSON.parse(toolFunction.arguments)
+        : {};
+    const toolResult = {
+      location:
+        typeof asRecord(toolArguments)?.location === "string"
+          ? asRecord(toolArguments)?.location
+          : "San Francisco, CA",
+      temperature: "72",
+      unit:
+        typeof asRecord(toolArguments)?.unit === "string"
+          ? asRecord(toolArguments)?.unit
+          : "fahrenheit",
+      forecast: ["sunny", "windy"],
+      source: "diagnostic mock",
+    };
+    const finalResponse = await fetchFeatherlessChatCompletion({
+      model: envValue("FEATHERLESS_MODEL"),
+      messages: [
+        {
+          role: "user",
+          content:
+            "What's the weather like in San Francisco? Use the get_current_weather tool.",
+        },
+        message,
+        {
+          tool_call_id: toolCall?.id,
+          role: "tool",
+          name: toolFunction?.name,
+          content: JSON.stringify(toolResult),
+        },
+      ],
+      max_tokens: 512,
+    });
+    const finalBody = asRecord(finalResponse.body);
+    const finalChoices = Array.isArray(finalBody?.choices) ? finalBody.choices : [];
+    const finalMessage = asRecord(asRecord(finalChoices[0])?.message);
+
+    if (!finalResponse.ok) {
+      return warn({
+        id: "featherless-tools",
+        service: "Featherless",
+        label: "Tool calling",
+        summary:
+          "Featherless emitted a native tool call, but rejected the follow-up tool result message.",
+        latencyMs,
+        details: {
+          toolCallCount: toolCalls.length,
+          firstToolName: toolFunction?.name,
+          finalStatus: finalResponse.status,
+        },
+        error: bodyMessage(finalResponse.body) ?? finalResponse.textPreview,
+        sample: toolCalls.slice(0, 2),
       });
     }
 
@@ -550,13 +643,22 @@ async function checkFeatherlessToolCalling(): Promise<DiagnosticCheck> {
       id: "featherless-tools",
       service: "Featherless",
       label: "Tool calling",
-      summary: "Featherless emitted an OpenAI-style tool call.",
+      summary:
+        "Featherless emitted an OpenAI-style tool call and accepted the tool result follow-up.",
       latencyMs,
       details: {
         toolCallCount: toolCalls.length,
-        firstToolName: asRecord(asRecord(toolCalls[0])?.function)?.name,
+        firstToolName: toolFunction?.name,
+        finalChoiceCount: finalChoices.length,
       },
-      sample: toolCalls.slice(0, 2),
+      sample: {
+        toolCalls: toolCalls.slice(0, 2),
+        toolResult,
+        finalContent:
+          typeof finalMessage?.content === "string"
+            ? finalMessage.content.slice(0, 500)
+            : undefined,
+      },
     });
   } catch (error) {
     return warn({
@@ -702,6 +804,84 @@ async function checkOpenStates(): Promise<DiagnosticCheck> {
   }
 }
 
+async function checkOpenStatesBills(): Promise<DiagnosticCheck> {
+  const missingKeys = missing(["OPENSTATES_API_KEY"]);
+  if (missingKeys.length > 0) {
+    return fail({
+      id: "openstates-bills",
+      service: "OpenStates",
+      label: "Texas bills search",
+      summary: "OpenStates bill search cannot run because required env is missing.",
+      details: { missing: missingKeys },
+    });
+  }
+
+  try {
+    const { latencyMs, result } = await timed(() =>
+      fetchWithTimeout(
+        "https://v3.openstates.org/bills?jurisdiction=tx&per_page=3&sort=updated_desc",
+        {
+          headers: {
+            "X-API-KEY": envValue("OPENSTATES_API_KEY")!,
+          },
+        }
+      )
+    );
+
+    if (!result.ok) {
+      return fail({
+        id: "openstates-bills",
+        service: "OpenStates",
+        label: "Texas bills search",
+        summary: "OpenStates returned an error for the Texas bills search probe.",
+        latencyMs,
+        details: { status: result.status, statusText: result.statusText },
+        error: bodyMessage(result.body) ?? result.textPreview,
+      });
+    }
+
+    const body = asRecord(result.body) ?? {};
+    const results = Array.isArray(body.results) ? body.results : [];
+
+    return pass({
+      id: "openstates-bills",
+      service: "OpenStates",
+      label: "Texas bills search",
+      summary: "OpenStates returned live Texas bill records sorted by recent update.",
+      latencyMs,
+      details: {
+        resultCount: results.length,
+        pagination: body.pagination,
+      },
+      sample: results.slice(0, 3).map((item) => {
+        const bill = asRecord(item) ?? {};
+        const jurisdiction = asRecord(bill.jurisdiction) ?? {};
+        const chamber = asRecord(bill.from_organization) ?? {};
+        return {
+          id: bill.id,
+          identifier: bill.identifier,
+          title: bill.title,
+          session: bill.session,
+          jurisdiction: jurisdiction.name,
+          chamber: chamber.name,
+          subjects: Array.isArray(bill.subject) ? bill.subject.slice(0, 5) : [],
+          latestActionDate: bill.latest_action_date,
+          latestActionDescription: bill.latest_action_description,
+          openstatesUrl: bill.openstates_url,
+        };
+      }),
+    });
+  } catch (error) {
+    return fail({
+      id: "openstates-bills",
+      service: "OpenStates",
+      label: "Texas bills search",
+      summary: "OpenStates bill search failed before returning usable data.",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 async function checkSocrataDataset(
   id: string,
   label: string,
@@ -752,7 +932,7 @@ async function checkSocrataDataset(
         rowsReturned: rows.length,
         firstRowKeys: Object.keys(asRecord(firstRow) ?? {}),
       },
-      sample: sampleRecord(firstRow),
+      sample: sampleRows(rows, 3, 14),
     });
   } catch (error) {
     return fail({
@@ -760,6 +940,201 @@ async function checkSocrataDataset(
       service: "Socrata",
       label,
       summary: "Socrata dataset request failed before returning usable data.",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function checkTloRssLiveData(): Promise<DiagnosticCheck> {
+  const feeds = [
+    {
+      name: "Upcoming House Committee Meetings",
+      url: "https://capitol.texas.gov/MyTLO/RSS/RSS.aspx?Type=upcomingmeetingshouse",
+    },
+    {
+      name: "Upcoming Senate Committee Meetings",
+      url: "https://capitol.texas.gov/MyTLO/RSS/RSS.aspx?Type=upcomingmeetingssenate",
+    },
+    {
+      name: "Today's Bill Text",
+      url: "https://capitol.texas.gov/MyTLO/RSS/RSS.aspx?Type=todaysbilltext",
+    },
+  ];
+
+  try {
+    const { latencyMs, result } = await timed(async () => {
+      const responses = await Promise.all(
+        feeds.map(async (feed) => {
+          const response = await fetchWithTimeout(feed.url);
+          const xml = typeof response.body === "string" ? response.body : response.textPreview;
+          return {
+            ...feed,
+            ok: response.ok,
+            status: response.status,
+            contentType: response.contentType,
+            items: parseRssItems(xml, 5),
+          };
+        })
+      );
+
+      return responses;
+    });
+
+    const failed = result.filter((feed) => !feed.ok);
+    if (failed.length > 0) {
+      return warn({
+        id: "tlo-rss-live",
+        service: "Texas Legislature Online",
+        label: "RSS legislative activity",
+        summary: "One or more TLO RSS feeds did not return cleanly.",
+        latencyMs,
+        details: { failed },
+      });
+    }
+
+    return pass({
+      id: "tlo-rss-live",
+      service: "Texas Legislature Online",
+      label: "RSS legislative activity",
+      summary: "TLO RSS feeds returned live legislative activity data.",
+      latencyMs,
+      details: {
+        feedsChecked: result.length,
+        itemCounts: result.map((feed) => ({
+          name: feed.name,
+          count: feed.items.length,
+        })),
+      },
+      sample: result.map((feed) => ({
+        name: feed.name,
+        url: feed.url,
+        items: feed.items,
+      })),
+    });
+  } catch (error) {
+    return warn({
+      id: "tlo-rss-live",
+      service: "Texas Legislature Online",
+      label: "RSS legislative activity",
+      summary: "TLO RSS live-data probe failed before returning usable data.",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function checkTloBillTextDocument(): Promise<DiagnosticCheck> {
+  const url = "https://capitol.texas.gov/tlodocs/892/billtext/html/HB00023F.htm";
+
+  try {
+    const { latencyMs, result } = await timed(() => fetchWithTimeout(url));
+    const text = typeof result.body === "string" ? result.body : result.textPreview;
+    const plainText = text
+      .replace(/<script[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[\s\S]*?<\/style>/gi, "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!result.ok || plainText.length < 100) {
+      return warn({
+        id: "tlo-bill-text",
+        service: "Texas Legislature Online",
+        label: "Bill text document",
+        summary: "TLO bill text page responded, but the document text looked incomplete.",
+        latencyMs,
+        details: {
+          status: result.status,
+          contentType: result.contentType,
+          textLength: plainText.length,
+        },
+        sample: plainText.slice(0, 500),
+      });
+    }
+
+    return pass({
+      id: "tlo-bill-text",
+      service: "Texas Legislature Online",
+      label: "Bill text document",
+      summary: "TLO bill text HTML is reachable and parseable.",
+      latencyMs,
+      details: {
+        status: result.status,
+        contentType: result.contentType,
+        textLength: plainText.length,
+        url,
+      },
+      sample: plainText.slice(0, 900),
+    });
+  } catch (error) {
+    return warn({
+      id: "tlo-bill-text",
+      service: "Texas Legislature Online",
+      label: "Bill text document",
+      summary: "TLO bill text probe failed before returning usable data.",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function checkTecPackage(
+  id: string,
+  label: string,
+  pageUrl: string,
+  zipUrl: string
+): Promise<DiagnosticCheck> {
+  try {
+    const { latencyMs, result } = await timed(async () => {
+      const [page, zip] = await Promise.all([
+        fetchWithTimeout(pageUrl),
+        fetchWithTimeout(zipUrl, { method: "HEAD" }),
+      ]);
+      return { page, zip };
+    });
+
+    if (!result.page.ok || !result.zip.ok) {
+      return warn({
+        id,
+        service: "Texas Ethics Commission",
+        label,
+        summary: "TEC page or CSV package endpoint did not return cleanly.",
+        latencyMs,
+        details: {
+          pageStatus: result.page.status,
+          zipStatus: result.zip.status,
+          zipContentType: result.zip.contentType,
+        },
+      });
+    }
+
+    return pass({
+      id,
+      service: "Texas Ethics Commission",
+      label,
+      summary:
+        "TEC public data page and CSV package are reachable. The package is intentionally not downloaded in diagnostics.",
+      latencyMs,
+      details: {
+        pageStatus: result.page.status,
+        zipStatus: result.zip.status,
+        zipContentType: result.zip.contentType,
+        zipContentLengthBytes: result.zip.headers["content-length"],
+        zipLastModified: result.zip.headers["last-modified"],
+        pageUrl,
+        zipUrl,
+      },
+      sample: {
+        packageUrl: zipUrl,
+        bytes: result.zip.headers["content-length"],
+        lastModified: result.zip.headers["last-modified"],
+        contentType: result.zip.contentType,
+      },
+    });
+  } catch (error) {
+    return warn({
+      id,
+      service: "Texas Ethics Commission",
+      label,
+      summary: "TEC package probe failed before returning usable data.",
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -950,27 +1325,45 @@ export async function runDiagnostics(): Promise<DiagnosticsReport> {
     supabaseAnon,
     exaSearch,
     openStates,
+    openStatesBills,
     socrataAustin,
+    socrataAustinZoningCases,
+    socrataAustinZoningByAddress,
     socrataDallas,
     socrataApiKeyPair,
     apify,
     tloPublic,
+    tloRssLive,
+    tloBillText,
     tecPublic,
+    tecLobbyPackage,
+    tecCampaignFinancePackage,
   ] = await Promise.all([
     checkEnvironment(),
     checkSupabaseServiceRole(),
     checkSupabaseAnon(),
     checkExaSearch(),
     checkOpenStates(),
+    checkOpenStatesBills(),
     checkSocrataDataset(
       "socrata-austin",
-      "Austin open-data sample",
-      "https://data.austintexas.gov/resource/3syk-w9eu.json?$limit=1"
+      "Austin permits live sample",
+      "https://data.austintexas.gov/resource/3syk-w9eu.json?%24limit=3&%24order=issue_date%20DESC"
+    ),
+    checkSocrataDataset(
+      "socrata-austin-zoning-cases",
+      "Austin zoning cases live sample",
+      "https://data.austintexas.gov/resource/edir-dcnf.json?%24limit=3&%24order=data_portal_update%20DESC"
+    ),
+    checkSocrataDataset(
+      "socrata-austin-zoning-by-address",
+      "Austin zoning by address live sample",
+      "https://data.austintexas.gov/resource/nbzi-qabm.json?%24limit=3"
     ),
     checkSocrataDataset(
       "socrata-dallas",
-      "Dallas open-data sample",
-      "https://www.dallasopendata.com/resource/e7gq-4sah.json?$limit=1"
+      "Dallas permits live sample",
+      "https://www.dallasopendata.com/resource/e7gq-4sah.json?%24limit=3&%24order=permit_number%20DESC"
     ),
     checkSocrataApiKeyPair(),
     checkApify(),
@@ -981,12 +1374,26 @@ export async function runDiagnostics(): Promise<DiagnosticsReport> {
       "https://capitol.texas.gov/",
       "Texas Legislature Online"
     ),
+    checkTloRssLiveData(),
+    checkTloBillTextDocument(),
     checkPublicPage(
       "tec-public",
       "Texas Ethics Commission",
       "Public source reachability",
       "https://www.ethics.state.tx.us/search/lobby/",
       "lobby"
+    ),
+    checkTecPackage(
+      "tec-lobby-package",
+      "Lobby activity CSV package",
+      "https://www.ethics.state.tx.us/search/lobby/",
+      "https://prd.tecprd.ethicsefile.com/public/lobby/public/TEC_LA_CSV.zip"
+    ),
+    checkTecPackage(
+      "tec-campaign-finance-package",
+      "Campaign finance CSV package",
+      "https://www.ethics.state.tx.us/search/cf/",
+      "https://prd.tecprd.ethicsefile.com/public/cf/public/TEC_CF_CSV.zip"
     ),
   ]);
 
@@ -1001,12 +1408,19 @@ export async function runDiagnostics(): Promise<DiagnosticsReport> {
     featherlessToolCalling,
     exaSearch,
     openStates,
+    openStatesBills,
     socrataAustin,
+    socrataAustinZoningCases,
+    socrataAustinZoningByAddress,
     socrataDallas,
     socrataApiKeyPair,
     apify,
     tloPublic,
+    tloRssLive,
+    tloBillText,
     tecPublic,
+    tecLobbyPackage,
+    tecCampaignFinancePackage,
   ];
 
   const overallStatus = checks.some((check) => check.status === "fail")
