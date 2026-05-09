@@ -3,8 +3,8 @@
 ## Provisioned Resources
 
 - Supabase: `Augur - Texas Intelligence for Businesses`, project ref `tsikkexwjfbfafwmolna`, region `us-east-2`
-- Vercel: `augur-texas-intelligence-for-businesses`
-- Railway: `Augur`, production environment, `augur-worker` service
+- Vercel: `augur-texas-intelligence-for-businesses`, root directory `frontend`
+- Railway: `Augur`, production environment, `augur-worker` service, deploy path `workers/ingest`
 
 Vercel rejected the exact human-readable name because Vercel project names must be lowercase slugs. Railway rejected the exact human-readable name and also hit the current free-plan project/service limit when creating additional resources, so the existing production Railway project is being used.
 
@@ -28,6 +28,6 @@ Use Railway MCP for Codex-driven infrastructure operations. Railway remote MCP i
 
 ## Vercel
 
-Use Vercel CLI for project linking, production environment variables, production deployments, and deployment inspection.
+Use Vercel CLI for project linking, production environment variables, production deployments, and deployment inspection. The production frontend is the top-level `frontend` workspace.
 
 Use Vercel MCP for Codex-driven project/deployment/log/docs operations. Vercel remote MCP is installed in Codex config.

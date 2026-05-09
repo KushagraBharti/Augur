@@ -4,15 +4,19 @@
   "private": true,
   "packageManager": "npm@11.11.1",
   "workspaces": [
-    "apps/*",
-    "packages/*",
+    "frontend",
+    "backend",
+    "shared",
+    "mcp",
     "workers/*"
   ],
   "scripts": {
-    "build": "npm --workspace apps/web run build",
+    "build": "npm --workspace frontend run build",
+    "frontend:build": "npm --workspace frontend run build",
+    "worker:start": "npm --workspace workers/ingest run start",
     "start": "npm --workspace workers/ingest run start",
     "supabase": "supabase",
-    "supabase:types": "supabase gen types typescript --project-id tsikkexwjfbfafwmolna > packages/augur-core/src/database.types.ts",
+    "supabase:types": "supabase gen types typescript --project-id tsikkexwjfbfafwmolna > shared/src/database.types.ts",
     "vercel": "vercel",
     "railway": "railway"
   },

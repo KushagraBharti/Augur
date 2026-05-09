@@ -4,7 +4,7 @@ This plan follows dependency order, not reduced product versions.
 
 ## 1. Foundation
 
-Create the monorepo structure, Supabase local config, shared core package, web app shell, worker folder, MCP package, and Augur skill.
+Create the simple workspace structure: `frontend`, `backend`, `workers`, `shared`, `mcp`, and the Augur skill.
 
 ## 2. Database
 
@@ -12,7 +12,7 @@ Create Supabase migrations for companies, data sources, raw records, normalized 
 
 ## 3. Data Connectors
 
-Implement connectors in `packages/augur-core` for OpenStates, TLO RSS, TLO FTP, TEC downloads, Austin Socrata, Dallas Socrata, San Antonio CKAN/API/downloads, and Houston if clean.
+Implement connectors in `shared` for OpenStates, TLO RSS, TLO FTP, TEC downloads, Austin Socrata, Dallas Socrata, San Antonio CKAN/API/downloads, and Houston if clean.
 
 ## 4. Agent Tools
 
@@ -34,7 +34,7 @@ Build the dark command-center UI with Overview, Texas Map, City Signals, Bills, 
 
 ## 8. MCP And Skill
 
-Expose Augur MCP tools from `packages/augur-mcp` using shared `augur-core` functions. Keep the tracked Augur skill in `skills/augur-texas-business-intelligence`.
+Expose Augur MCP tools from `mcp` using functions from `shared`. Keep the tracked Augur skill in `skills/augur-texas-business-intelligence`.
 
 ## 9. Miro
 

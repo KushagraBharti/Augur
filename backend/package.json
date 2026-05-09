@@ -1,5 +1,5 @@
 {
-  "name": "@augur/ingest-worker",
+  "name": "@augur/backend",
   "version": "0.0.0",
   "private": true,
   "type": "module",
