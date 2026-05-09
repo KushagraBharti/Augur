@@ -27,6 +27,9 @@ export default function Home() {
             <dd>Texas public-data signals</dd>
           </div>
         </dl>
+        <a className="primaryLink" href="/diagnostics">
+          Run API diagnostics
+        </a>
       </section>
     </main>
   );

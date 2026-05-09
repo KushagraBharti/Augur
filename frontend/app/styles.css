@@ -86,6 +86,209 @@ dd {
   font-weight: 700;
 }
 
+.primaryLink,
+.apiLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-top: 28px;
+  border: 1px solid rgba(84, 211, 189, 0.55);
+  border-radius: 8px;
+  padding: 0 16px;
+  color: #e9fffb;
+  background: rgba(84, 211, 189, 0.12);
+  font-size: 0.94rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.primaryLink:hover,
+.apiLink:hover {
+  background: rgba(84, 211, 189, 0.18);
+}
+
+.diagnosticsShell {
+  min-height: 100svh;
+  padding: 40px;
+  background:
+    radial-gradient(circle at 10% 8%, rgba(25, 116, 117, 0.24), transparent 28%),
+    linear-gradient(135deg, #0b0d12 0%, #17131f 54%, #10151b 100%);
+}
+
+.diagnosticsHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  max-width: 1180px;
+  margin: 0 auto 24px;
+}
+
+.diagnosticsHeader h1 {
+  font-size: clamp(2.6rem, 6vw, 5.8rem);
+}
+
+.overallBadge,
+.checkBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.overallBadge {
+  min-width: 92px;
+  min-height: 42px;
+  margin-top: 8px;
+}
+
+.checkBadge {
+  min-width: 64px;
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+.pass {
+  border: 1px solid rgba(96, 215, 155, 0.45);
+  color: #9dffc6;
+  background: rgba(52, 168, 105, 0.12);
+}
+
+.warn {
+  border: 1px solid rgba(255, 197, 94, 0.45);
+  color: #ffe0a4;
+  background: rgba(255, 176, 58, 0.12);
+}
+
+.fail {
+  border: 1px solid rgba(255, 104, 104, 0.45);
+  color: #ffb9b9;
+  background: rgba(229, 68, 68, 0.12);
+}
+
+.summaryGrid,
+.checksList {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.summaryGrid div,
+.checkRow {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(12, 15, 22, 0.82);
+}
+
+.summaryGrid div {
+  min-width: 0;
+  padding: 16px;
+}
+
+.summaryGrid span {
+  display: block;
+  color: #8d98aa;
+  font-size: 0.78rem;
+}
+
+.summaryGrid strong {
+  display: block;
+  margin-top: 8px;
+  color: #f7fafc;
+  font-size: 1.15rem;
+  overflow-wrap: anywhere;
+}
+
+.checksList {
+  display: grid;
+  gap: 12px;
+}
+
+.checkRow {
+  padding: 18px;
+}
+
+.checkRow header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.checkRow header p {
+  margin: 0 0 4px;
+  color: #54d3bd;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.checkRow h2 {
+  margin: 0;
+  color: #f7fafc;
+  font-size: 1.05rem;
+  line-height: 1.3;
+}
+
+.checkSummary {
+  margin: 14px 0 0;
+  color: #c4ccda;
+  line-height: 1.55;
+}
+
+.checkMeta {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 0;
+}
+
+.checkMeta div {
+  min-width: 0;
+}
+
+.checkMeta dd {
+  overflow-wrap: anywhere;
+}
+
+.jsonBlock {
+  margin-top: 14px;
+  color: #d6deea;
+}
+
+.jsonBlock summary {
+  cursor: pointer;
+  color: #eef2f8;
+  font-weight: 700;
+}
+
+.jsonBlock pre {
+  max-height: 360px;
+  overflow: auto;
+  margin: 10px 0 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 14px;
+  color: #dce6f5;
+  background: rgba(0, 0, 0, 0.24);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.apiLink {
+  margin-left: calc((100% - min(1180px, calc(100% - 80px))) / 2);
+}
+
 @media (max-width: 640px) {
   .shell {
     padding: 18px;
@@ -93,5 +296,29 @@ dd {
 
   .statusGrid {
     grid-template-columns: 1fr;
+  }
+
+  .diagnosticsShell {
+    padding: 18px;
+  }
+
+  .diagnosticsHeader {
+    display: block;
+  }
+
+  .overallBadge {
+    margin-top: 18px;
+  }
+
+  .summaryGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .checkRow header {
+    display: grid;
+  }
+
+  .apiLink {
+    margin-left: 0;
   }
 }

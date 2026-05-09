@@ -11,8 +11,11 @@
     "workers/*"
   ],
   "scripts": {
+    "dev": "node scripts/dev.mjs",
     "build": "npm --workspace frontend run build",
+    "frontend:dev": "npm --workspace frontend run dev -- -p 3000",
     "frontend:build": "npm --workspace frontend run build",
+    "backend:start": "npm --workspace backend run start",
     "worker:start": "npm --workspace workers/ingest run start",
     "start": "npm --workspace workers/ingest run start",
     "supabase": "supabase",

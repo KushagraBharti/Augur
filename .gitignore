@@ -2,9 +2,12 @@
 .claude/
 .railway/
 .vercel/
+supabase/.temp/
 .next/
 **/.next/
 node_modules/
 .env
 .env.*
 !.env.example
+
+.env*.local

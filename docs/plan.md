@@ -358,6 +358,8 @@ Austin and Dallas are Socrata-style portals. Socrata’s SODA API gives each dat
 
 Socrata supports SoQL, the Socrata Query Language, for rich filtering and querying. ([Socrata Developers][14])
 
+For Augur's public Austin and Dallas reads, use a Socrata application token as the default credential. Send it with the `X-App-Token` header. Socrata API key ID/secret credentials are different from an app token: they represent a user for Basic Auth and are only needed if Augur later performs authenticated/private/write operations. The MVP should not require Socrata API key ID/secret for public open-data reads.
+
 For implementation, use the simplest reliable endpoint first:
 
 ```txt
@@ -439,22 +441,27 @@ The repo should be structured like this:
 
 ```txt
 augur/
-  apps/
-    web/
-      app/
-      components/
-      lib/
-      api/
-  packages/
-    augur-core/
-      data-sources/
-      scoring/
-      agent/
-      reports/
-      schemas/
-    augur-mcp/
-      server.ts
-      tools/
+  frontend/
+    app/
+    components/
+    lib/
+    api/
+  backend/
+    README.md
+    src/
+      index.ts
+      routes/
+      services/
+  shared/
+    data-sources/
+    scoring/
+    agent/
+    reports/
+    schemas/
+    supabase/
+  mcp/
+    server.ts
+    tools/
   workers/
     ingest/
       tlo-ftp-worker.ts
@@ -477,7 +484,15 @@ augur/
     demo-script.md
 ```
 
-The shared `augur-core` package matters because the web app, worker jobs, and MCP server should not duplicate business logic.
+The `shared` workspace matters because the web app, worker jobs, backend services, and MCP server should not duplicate business logic.
+
+For the MVP, `backend` should stay thin. The fastest path is:
+
+- `frontend` owns the Next.js dashboard, auth screens, server actions, and route handlers needed by the web app.
+- `shared` owns reusable data connectors, schemas, scoring helpers, agent tools, report helpers, and Supabase access wrappers.
+- `workers` owns long-running or scheduled production jobs on Railway: ingestion, replay, live monitor, TLO FTP, TEC imports, and heavy agent runs.
+- `mcp` owns the Augur MCP server and imports from `shared`.
+- `backend` is reserved for a separate HTTP/API service only if a route does not belong cleanly in Vercel or Railway workers. It should not become a duplicate application layer.
 
 ---
 
@@ -1724,18 +1739,18 @@ The MCP server is the agent-access layer for Augur’s Texas public-data tools.
 
 The BrainForge / Texas Open Data track asks for either a custom MCP server or a proper agent skill. Shipping both makes the submission stronger.
 
-## 16.2 MCP server package
+## 16.2 MCP server workspace
 
 Location:
 
 ```txt
-packages/augur-mcp
+mcp/
 ```
 
 It imports functions from:
 
 ```txt
-packages/augur-core
+shared/
 ```
 
 The server should expose tools, not raw database tables.
@@ -1907,7 +1922,7 @@ agent run table works
 
 ## Phase 2 — Data connectors
 
-Build connectors in `augur-core`.
+Build connectors in `shared`.
 
 Deliverables:
 
@@ -2152,6 +2167,328 @@ ships a proper agent skill
 The final demo should make one thing obvious:
 
 > **Augur turns Texas public data into business decisions.**
+
+## 20.1 Locked implementation decisions
+
+These decisions supersede older exploratory notes in `transcript.md`.
+
+- `plan.md` is the canonical product spec. `transcript.md` is decision history and context.
+- The mechanical repo layout is `frontend`, `backend`, `workers`, `shared`, `mcp`, `skills`, and `docs`.
+- Keep `backend` thin. The MVP should use Next.js route handlers/server actions in `frontend`, shared logic in `shared`, long-running jobs in `workers`, and MCP exposure in `mcp`.
+- Build minimal multi-company support because the schema already supports companies, but keep the demo centered on LoneStar Retail Group.
+- Add basic Supabase email/password auth. Keep it simple: account creation, email uniqueness, login, company profile onboarding/storage, and no advanced auth flows. For the MVP, each email maps directly to the user's company profile.
+- The first screen is always the Overview dashboard with an interactive Texas map and highlighted Austin, Dallas, Houston, and San Antonio.
+- Ask Mode uses the core expansion prompt from the demo plan, but the recommendation must be data-driven and cannot hardcode Austin.
+- Austin is the deepest first city. Dallas and San Antonio should be solid but lighter. Houston can be lower-confidence or watchlisted if connector quality is weaker.
+- Austin council districts are the first preferred geo unit. Do not add extra corridor/neighborhood mapping until the core product works.
+- Replay Mode should use a real historical public-data window selected from actual Texas policy/data events. No fake replay fixtures.
+- Cached real public records are acceptable when live sources fail, if the run clearly says that cached data was used and confidence is adjusted.
+- Failed source calls should appear in the activity log and lower confidence when relevant instead of silently disappearing.
+- Include TEC lobbying records and campaign-finance data in the data pass, prioritizing the cleanest public downloads first.
+- The agent assigns signal scores through the `update_signal_scores` tool. The backend validates schema, score bounds, and evidence IDs, but does not enforce a deterministic formula range.
+- Start score history at city level. Add district-level score history after the city-level flow works.
+- Generate one final report at the end of a run. During the run, show polished activity summaries, not draft report sections.
+- The activity log should be production-readable: high-level steps, source names, short query summaries, links opened, evidence IDs, timestamps, and status. Raw JSON can remain hidden behind deeper debugging views.
+- Use "Response Plan" as the product language. Avoid user-facing "lobbying strategy" framing.
+- Miro is completely last and should not block the core dashboard, data, agent, MCP, or skill work.
+- Use Exa as the preferred web research API when configured. Fallback web research should stay bounded to live official public pages.
+- Use Featherless as the primary LLM API provider through its OpenAI-compatible API. The target model is Kimi K2.6 if Featherless exposes it with the required tool-calling and thinking behavior.
+- Use modest/medium thinking if Kimi thinking controls are available. Before depending on Kimi thinking mode in production, verify the exact Featherless request shape for tool calling, reasoning/thinking output, token limits, and any `extra_body` support. If thinking mode or tool calling is not cleanly supported through Featherless, fall back to Kimi without thinking while keeping the provider abstraction.
+
+## 20.2 Current canonical architecture
+
+This is the latest working architecture for implementation. If an older section in this document implies a heavier monorepo or a local development stack, this section wins.
+
+```txt
+User browser
+→ Vercel / Next.js frontend
+→ Supabase Auth and Supabase Postgres
+→ agent_runs row created by the app
+→ Railway worker claims/runs the job
+→ shared Augur tools query public data and Supabase
+→ agent_tool_calls, evidence_items, signal_scores, and reports are written back to Supabase
+→ frontend polls for updated run status and renders the dashboard/report/activity log
+```
+
+The agent does not get a general-purpose terminal, sandbox, shell, or mini-PC. Augur is not a coding agent. It is a bounded tool-using analyst. The model can only act through Augur-defined tools, and those tools are implemented in TypeScript, logged, validated, and connected to real public data.
+
+The reason this is the correct production design is that Augur's job is to analyze public records, not mutate an arbitrary filesystem. A terminal would increase complexity without adding meaningful product value. The controlled tool layer gives the model enough power to investigate while keeping outputs evidence-backed and reproducible.
+
+## 20.3 Runtime ownership
+
+`frontend` owns:
+
+- Next.js App Router dashboard.
+- Basic sign-up/login/onboarding screens.
+- Overview-first user experience.
+- Route handlers/server actions that create agent runs and read Supabase state.
+- Markdown report viewer.
+- Texas map and city/council-district interactions.
+- Polling UI for active runs.
+
+`shared` owns:
+
+- Supabase clients and typed data-access helpers.
+- Source registry helpers.
+- Public-data connectors.
+- Normalization logic.
+- Evidence creation helpers.
+- Agent tool implementations.
+- Provider wrapper for Featherless/Kimi.
+- Report and score validation schemas.
+
+`workers` owns:
+
+- Railway-running agent worker.
+- Job claiming and status transitions.
+- Live monitor job.
+- Replay monitor job.
+- TLO RSS/FTP ingestion.
+- OpenStates sync.
+- TEC lobbying and campaign-finance importers.
+- City data refresh jobs.
+
+`mcp` owns:
+
+- Custom Augur MCP server.
+- MCP tools wrapping `shared` functions.
+- MCP resources for source registry, schema, company profile, scoring model, and latest report.
+- MCP prompts if time allows.
+
+`backend` owns:
+
+- Nothing by default.
+- It is reserved for a separate HTTP service only if a capability clearly does not belong in Vercel route handlers or Railway workers.
+- It should not duplicate the frontend route handlers, worker job logic, or shared data layer.
+
+## 20.4 Auth and company model
+
+Auth should be basic and fast:
+
+- Use Supabase email/password auth.
+- Enforce email uniqueness through Supabase Auth.
+- On first login/sign-up, the user creates a company profile.
+- For the MVP, one user email maps directly to one primary company profile.
+- The schema can still support multiple companies over time, but the UI should not overbuild account/team management.
+- Seed LoneStar Retail Group as the demo company.
+- The demo account/company should be easy to load for judging and development.
+
+The company profile should capture enough to guide the agent:
+
+```json
+{
+  "name": "LoneStar Retail Group",
+  "vertical": "retail landlord / strip-mall developer",
+  "target_cities": ["Austin", "Dallas", "Houston", "San Antonio"],
+  "business_goal": "Develop or expand retail centers across Texas",
+  "risk_sensitivities": [
+    "permitting timelines",
+    "zoning and land use",
+    "commercial property tax",
+    "development incentives",
+    "parking and signage rules",
+    "certificates of occupancy",
+    "code violations",
+    "retail tenant opening friction"
+  ],
+  "preferred_output": "decisive, source-backed business recommendation with Response Plan"
+}
+```
+
+## 20.5 Agent runtime flow
+
+Ask Mode should run like this:
+
+```txt
+1. User clicks Ask Mode / Run analysis from the dashboard.
+2. Vercel creates an agent_runs row with mode = ask and status = queued.
+3. Railway worker claims the queued run and sets status = running.
+4. Worker loads company profile, source registry, prior scores, and user prompt.
+5. Worker calls Featherless/Kimi through the provider abstraction.
+6. Model chooses bounded tools.
+7. Each tool writes an agent_tool_calls row with a production-readable summary.
+8. Tool outputs return compact summaries, evidence IDs, and source links, not massive raw datasets.
+9. Model continues the observe-act-observe loop until it has enough evidence.
+10. Model calls update_signal_scores with evidence-backed numeric scores.
+11. Model calls save_markdown_report with the final report.
+12. Worker marks the run completed or failed.
+13. Frontend polling renders status, activity, scores, evidence, and report.
+```
+
+Live Monitor should follow the same pipeline, but the prompt and data window are generated by the scheduled monitor job. Replay Monitor should also follow the same pipeline, but with a historical window over real cached records.
+
+The frontend should poll every few seconds for run progress. Supabase Realtime is optional later. It should not be a dependency for the MVP.
+
+## 20.6 LLM provider strategy
+
+Featherless is the primary inference provider because it exposes an OpenAI-compatible API and gives access to open models. The app should not hardwire vendor assumptions into business logic. Instead, implement a small provider wrapper that can:
+
+- Set `baseURL` to `https://api.featherless.ai/v1`.
+- Use `FEATHERLESS_API_KEY`.
+- Select `FEATHERLESS_MODEL`, initially targeting Kimi K2.6 if available.
+- Pass tools/function definitions through the OpenAI-compatible chat completions API.
+- Attempt modest/medium thinking mode when supported.
+- Cap output tokens so thinking does not run away.
+- Fall back to non-thinking mode if thinking/tool-calling behavior is not reliable.
+- Preserve a clean interface so the provider can be swapped later without rewriting Augur tools.
+
+The first implementation should include a provider verification script or route that tests:
+
+```txt
+basic chat completion
+tool calling
+multi-step tool calling
+thinking/reasoning response shape, if exposed
+max token behavior
+error format
+timeout behavior
+```
+
+If Kimi K2.6 through Featherless cannot do both thinking and tool calling cleanly, the product should prefer reliable tool calling over thinking. The demo can still mention Kimi/Featherless if that path is used, but Augur's core value is the evidence-backed workflow, not a decorative model feature.
+
+## 20.7 Data-source priority and depth
+
+The data-source order should be:
+
+1. Supabase schema and source registry.
+2. Austin permits and zoning data.
+3. OpenStates Texas bills.
+4. TLO RSS and official document fetch/cache.
+5. Dallas permits/code/occupancy data.
+6. San Antonio permits and land-use data.
+7. TEC lobbying records.
+8. TEC campaign-finance data.
+9. Exa-powered web research for official contacts/context.
+10. Houston connector if clean enough to support confident output.
+
+Austin is the deepest first city. The first deep geo unit is Austin council district. Dallas and San Antonio should be comparable at city level and lighter district/geo depth. Houston should be shown if real data is clean; otherwise it can be watchlisted with lower confidence and an explicit reason.
+
+Campaign finance is in scope, but it must not derail the core product. The first pass should import the cleanest public files and expose enough for policy-risk context. User-facing language should stay professional: public influence context, stakeholder awareness, and Response Plan. Avoid implying deceptive lobbying, targeting, or legal advice.
+
+## 20.8 Web research and contact paths
+
+Exa should be the preferred web research provider once configured. Web research should be bounded and source-biased:
+
+- Prefer official government, agency, committee, city, county, legislature, and public organization pages.
+- Use contact pages and office pages as sources for Response Plan contact paths.
+- Record URLs opened or searched in `agent_tool_calls`.
+- Create `contact_paths` rows when the report recommends a contact path.
+- Store why the office/contact matters, not just a name.
+- Do not send messages or automate outreach.
+
+Fallback web research should still use live official pages. It should not fabricate contacts or rely on stale hardcoded contact lists.
+
+## 20.9 Score ownership
+
+The model assigns scores using the `update_signal_scores` tool. The backend validates:
+
+- Required fields exist.
+- Numeric scores are between 0 and 100.
+- Evidence IDs exist and belong to the current run or relevant cached source set.
+- City and geo fields are valid.
+- Reasoning summary is present.
+
+The backend should not force a deterministic formula range in the MVP. Formula examples in this plan are rubrics and explanation anchors, not strict gatekeepers. Later, deterministic pre-scores can be added as inputs to the model, but the final MVP score write is agent-assigned and evidence-validated.
+
+Start with city-level score history. Add council-district score history once city-level flow works end to end.
+
+## 20.10 Activity-log standard
+
+The activity log should feel like a professional agent transcript, not a raw JSON dump. Surface-level entries should look like:
+
+```txt
+Loaded LoneStar Retail Group profile
+Queried Austin construction permits for recent commercial activity
+Found elevated commercial permit activity in Austin District 3
+Searched Texas bills for permitting, zoning, land use, property tax, parking, and signage
+Retrieved official TLO documents for 2 relevant bills
+Searched TEC lobbying records for development-related subject activity
+Updated city-level signal scores
+Generated final report
+```
+
+Expanded entries may show:
+
+```txt
+tool name
+short input summary
+source names
+links opened
+record counts
+evidence IDs
+timestamp
+status
+error message if failed
+```
+
+Raw input/output JSON should be hidden behind a deeper debug view, if exposed at all.
+
+## 20.11 Production-only setup
+
+This project should be wired directly to the cloud services:
+
+- Supabase cloud project for database/auth/storage.
+- Vercel production deployment for frontend.
+- Railway production services for workers and MCP.
+- No local Supabase stack.
+- No Docker requirement for the app path.
+- No fake local-only services.
+
+The browser must use the Supabase anon key. Server-only code should use the service role key when needed. This is not about overbuilding enterprise security; exposing a service role key to the browser would let any browser user mutate the database directly and would break the basic architecture.
+
+## 20.12 Environment variables
+
+Expected environment variables:
+
+```txt
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+FEATHERLESS_API_KEY
+FEATHERLESS_MODEL
+OPENSTATES_API_KEY
+EXA_API_KEY
+SOCRATA_APP_TOKEN
+RAILWAY_ENVIRONMENT
+APP_BASE_URL
+```
+
+Optional or later:
+
+```txt
+APIFY_API_KEY
+SOCRATA_API_KEY_ID
+SOCRATA_API_KEY_SECRET
+MIRO_CLIENT_ID
+MIRO_CLIENT_SECRET
+MIRO_ACCESS_TOKEN
+```
+
+Vercel should receive frontend-safe variables and server route variables. Railway should receive service-role and ingestion/worker variables. Secrets should not be committed.
+
+## 20.13 MVP acceptance criteria
+
+The MVP is real only when all of this works:
+
+```txt
+User can sign up/login with email and password.
+User can create or load a company profile.
+Overview dashboard is the first screen.
+Texas map shows Austin, Dallas, Houston, and San Antonio.
+LoneStar Retail Group demo profile exists.
+Ask Mode creates an agent run.
+Railway worker executes the run.
+Agent calls real tools backed by real public/cached public data.
+Activity log updates while the run progresses.
+Scores are updated through update_signal_scores.
+Report is saved as markdown and rendered in the dashboard.
+Evidence drawer links claims to public source URLs or cached public records.
+Failed sources are visible and lower confidence instead of silently disappearing.
+Replay Mode uses real historical cached public records.
+MCP server exposes Augur tools.
+Augur skill exists and explains safe/source-backed usage.
+No hardcoded fake recommendation, fake bill, fake alert, or fake replay fixture exists.
+```
 
 [1]: https://miro.com/marketplace/miro-mcp-for-openai-codex/?utm_source=chatgpt.com "Miro MCP for OpenAI Codex"
 [2]: https://docs.openstates.org/api-v3/?utm_source=chatgpt.com "API v3 Overview - Open States"
