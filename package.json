@@ -17,7 +17,7 @@
     "frontend:build": "npm --workspace frontend run build",
     "backend:start": "npm --workspace backend run start",
     "worker:start": "npm --workspace workers/ingest run start",
-    "start": "npm --workspace workers/ingest run start",
+    "start": "node scripts/start.mjs",
     "supabase": "supabase",
     "supabase:types": "supabase gen types typescript --project-id tsikkexwjfbfafwmolna > shared/src/database.types.ts",
     "vercel": "vercel",
