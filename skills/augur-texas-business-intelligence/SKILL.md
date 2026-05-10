@@ -7,6 +7,12 @@ description: Use this skill when analyzing Texas public data for real estate dev
 
 Use this skill to query Augur's MCP tools and produce source-backed business intelligence reports from Texas public data.
 
+Before analysis, prefer the Augur MCP server when available. Use the reference files in this skill for source priority, safety boundaries, and score interpretation:
+
+- `references/data-sources.md`
+- `references/safety-policy.md`
+- `references/scoring-model.md`
+
 ## Core Workflow
 
 1. Identify the company profile and business question.
@@ -20,6 +26,25 @@ Use this skill to query Augur's MCP tools and produce source-backed business int
 9. Never recommend deceptive lobbying or mass outreach.
 10. Produce a business-ready report.
 
+## MCP Tools
+
+Use these Augur tools when available:
+
+- `augur.compare_expansion_signals`
+- `augur.generate_business_brief`
+- `augur.search_texas_bills`
+- `augur.get_texas_bill_documents`
+- `augur.query_city_dataset`
+- `augur.search_lobby_activity`
+
+Useful resources:
+
+- `augur://sources`
+- `augur://schema`
+- `augur://company/lonestar-retail-group`
+- `augur://latest-report`
+- `augur://scoring-model`
+
 ## Required Output
 
 Every analysis should include:
@@ -31,3 +56,5 @@ Every analysis should include:
 - uncertainty
 - source list
 - next actions
+
+Do not invent missing data. If a connector is stale, degraded, or unavailable, say that plainly and lower confidence.

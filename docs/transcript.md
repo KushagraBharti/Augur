@@ -646,7 +646,7 @@ Use this for the daily monitor:
 → identify new/changed bills
 → pull official docs
 → run agent if relevant
-Option C — scraper fallback
+Option C — secondary scraper path
 Scrape TLO bill lookup/search/committee pages only for data not available via Open States, RSS, or FTP.
 
 TLO committee pages expose schedules, minutes, witness lists, and bills in/out/referred to committee. 
@@ -1357,7 +1357,7 @@ TLO FTP = official Texas bill documents
 TLO RSS = change detection feed
 TEC = lobbying / influence snapshot
 Socrata / CKAN / ArcGIS = city open data
-Exa = fallback web research
+Exa = bounded secondary web research
 Supabase = our normalized cache
 4. Texas legislation data
 What OpenStates gives us
@@ -3279,8 +3279,8 @@ Business-y: Texas Expansion Brief
 Threat-y: Texas Risk & Opportunity Brief
 My lean: Texas Expansion Brief.
 
-Do we want the agent to use Exa/web search in the core demo, or only as fallback?
-Core demo with web search looks deeper, but can be less deterministic. Fallback is safer.
+Do we want the agent to use Exa/web search in the core demo, or only as bounded secondary research?
+Core demo with web search looks deeper, but can be less scripted. Secondary source use is safer.
 
 Should the dashboard show raw datasets visibly, or hide them behind evidence drawers?
 My lean: evidence drawers. Keep the main dashboard clean.
@@ -3297,9 +3297,9 @@ Policy alerts, locked. Recommended contact path, suggested talking why that cont
 
 Yeah, this looks good. Codex builds prompts. Explanation when I asked about it. Since this, don't worry about that. You don't need to worry about the codex building prompts part. The current locked version, yeah, that looks good. Everything looks good.
 
-What should the first command dashboard tab be called? It should just be called the overview. Just call it the overview. Should the main report title be more businessy or more thread? What? A report? What? We'll do. It will just create a custom title name, bro, for each thing. I don't know what the fuck you're doing. Do you want an agent? Yes. Yes, yes, yes, there should be no deterministic fallbacks ever for anything. I don't know why you are so adamant on building deterministic fallbacks. I want them to have live fucking data. Okay, live web search data. There should be no deterministic fallback, absolutely zero. Everything should be no hard-coding, anything, no fucking bullshit. Okay, we want only fucking live data, only fucking the downloaded data or the live data.
+What should the first command dashboard tab be called? It should just be called the overview. Just call it the overview. Should the main report title be more businessy or more thread? What? A report? What? We'll do. It will just create a custom title name, bro, for each thing. I don't know what the fuck you're doing. Do you want an agent? Yes. Yes, yes, yes, there should be no scripted backup generation ever for anything. I don't know why you are so adamant on building scripted backup paths. I want them to have live fucking data. Okay, live web search data. There should be no scripted backup generation, absolutely zero. Everything should be no hard-coding, anything, no fucking bullshit. Okay, we want only fucking live data, only fucking the downloaded data or the live data.
 
-Okay, I don't want no deterministic fallback of, like, okay, this is, we're in a hard code this, like, no fucking hard coding this bullshit.
+Okay, I don't want no scripted backup generation of, like, okay, this is, we're in a hard code this, like, no fucking hard coding this bullshit.
 
 Should the dashboard show raw data, such as visible your height? Behind evidence stores. Should the dashboard show raw data sets simply or hide them behind evidence stores? For the policy contact output, should it be called contact stakeholder map response plan? Response plan, I guess. Yeah, hopefully that answers the rest of your questions. Let me know if you have any other questions. Again, tell me if you have any other questions first before we do anything else. 
 
@@ -3832,7 +3832,7 @@ load company profile
 6.1 Data source philosophy
 Augur’s data architecture should use each source for what it is best at.
 
-OpenStates is best for structured bill metadata. Texas Legislature Online is best for official Texas documents. TLO RSS is best for change detection. Texas Ethics Commission is best for lobbying/influence snapshots. Socrata-style city portals are best for Austin and Dallas datasets. CKAN-style portals are useful for San Antonio and Houston. Exa/web search is a fallback research tool when structured public data is incomplete.
+OpenStates is best for structured bill metadata. Texas Legislature Online is best for official Texas documents. TLO RSS is best for change detection. Texas Ethics Commission is best for lobbying/influence snapshots. Socrata-style city portals are best for Austin and Dallas datasets. CKAN-style portals are useful for San Antonio and Houston. Exa/web search is a bounded secondary research tool when structured public data is incomplete.
 
 This is intentionally not “scrape everything.” The hierarchy is:
 
@@ -3962,7 +3962,7 @@ GET /api/3/action/datastore_search?resource_id=<resource_id>
 If the datastore endpoint is not enabled or is inconvenient, the worker can download the JSON/CSV resource and cache it in Supabase.
 
 6.10 Exa/web research
-Exa or another web-search API should be available to the agent as a research fallback. It should not replace official data sources. It should be used when the agent needs context, public official pages, committee pages, agency descriptions, or news/background context.
+Exa or another web-search API should be available to the agent as bounded secondary research. It should not replace official data sources. It should be used when the agent needs context, public official pages, committee pages, agency descriptions, or news/background context.
 
 The agent should treat web results as lower-confidence unless they are official sources.
 

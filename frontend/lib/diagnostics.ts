@@ -21,8 +21,9 @@ export type DiagnosticsReport = {
 };
 
 const REQUIRED_ENV_KEYS = [
-  "FEATHERLESS_API_KEY",
-  "FEATHERLESS_MODEL",
+  "OPENAI_API_KEY",
+  "OPENAI_MODEL",
+  "OPENAI_REASONING_EFFORT",
   "OPENSTATES_API_KEY",
   "EXA_API_KEY",
   "SOCRATA_APP_TOKEN",
@@ -91,10 +92,6 @@ async function timed<T>(fn: () => Promise<T>): Promise<TimedResult<T>> {
   };
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function fetchWithTimeout(
   url: string,
   init: RequestInit = {},
@@ -135,24 +132,49 @@ async function fetchWithTimeout(
   }
 }
 
-async function fetchFeatherlessChatCompletion(payload: Record<string, unknown>) {
-  const request = () =>
-    fetchWithTimeout("https://api.featherless.ai/v1/chat/completions", {
+function openAiModel(): string {
+  return envValue("OPENAI_MODEL") ?? "gpt-5.4-mini";
+}
+
+function openAiReasoningEffort(): string {
+  return envValue("OPENAI_REASONING_EFFORT") ?? "medium";
+}
+
+async function fetchOpenAiResponse(payload: Record<string, unknown>, timeoutMs = 45_000) {
+  return fetchWithTimeout(
+    "https://api.openai.com/v1/responses",
+    {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${envValue("FEATHERLESS_API_KEY")}`,
+        Authorization: `Bearer ${envValue("OPENAI_API_KEY")}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
-    });
+      body: JSON.stringify({
+        model: openAiModel(),
+        reasoning: { effort: openAiReasoningEffort() },
+        ...payload,
+      }),
+    },
+    timeoutMs
+  );
+}
 
-  const firstAttempt = await request();
-  if (firstAttempt.status !== 429) {
-    return firstAttempt;
+function responseOutputText(body: unknown): string {
+  const record = asRecord(body);
+  if (typeof record?.output_text === "string") {
+    return record.output_text;
   }
-
-  await sleep(15_000);
-  return request();
+  const output = Array.isArray(record?.output) ? record.output : [];
+  const chunks: string[] = [];
+  for (const item of output) {
+    const content = Array.isArray(asRecord(item)?.content) ? asRecord(item)?.content : [];
+    for (const part of content as unknown[]) {
+      const partRecord = asRecord(part);
+      if (typeof partRecord?.text === "string") chunks.push(partRecord.text);
+      if (typeof partRecord?.output_text === "string") chunks.push(partRecord.output_text);
+    }
+  }
+  return chunks.join("\n").trim();
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -255,10 +277,14 @@ async function checkEnvironment(): Promise<DiagnosticCheck> {
         ? "All required runtime variables are present."
         : `${requiredMissing.length} required runtime variable(s) are missing.`,
     details: {
-      requiredPresent: present(REQUIRED_ENV_KEYS),
-      requiredMissing,
-      optionalPresent,
-      optionalMissing,
+      requiredPresentCount: REQUIRED_ENV_KEYS.length - requiredMissing.length,
+      requiredMissingCount: requiredMissing.length,
+      requiredTotal: REQUIRED_ENV_KEYS.length,
+      optionalPresentCount: optionalPresent.length,
+      optionalMissingCount: optionalMissing.length,
+      optionalTotal: OPTIONAL_ENV_KEYS.length,
+      publicClientEnvPresent: present(REQUIRED_ENV_KEYS).filter((key) => key.startsWith("NEXT_PUBLIC_")).length,
+      serverOnlyEnvPresent: present(REQUIRED_ENV_KEYS).filter((key) => !key.startsWith("NEXT_PUBLIC_")).length,
     },
   };
 
@@ -423,249 +449,201 @@ async function checkSupabaseAnon(): Promise<DiagnosticCheck> {
   }
 }
 
-async function checkFeatherlessChat(): Promise<DiagnosticCheck> {
-  const missingKeys = missing(["FEATHERLESS_API_KEY", "FEATHERLESS_MODEL"]);
+async function checkOpenAiBasic(): Promise<DiagnosticCheck> {
+  const missingKeys = missing(["OPENAI_API_KEY"]);
   if (missingKeys.length > 0) {
     return fail({
-      id: "featherless-chat",
-      service: "Featherless",
-      label: "Chat completion",
-      summary: "Featherless chat check cannot run because required env is missing.",
-      details: { missing: missingKeys },
+      id: "openai-basic",
+      service: "OpenAI",
+      label: "Responses API",
+      summary: "OpenAI Responses API check cannot run because required env is missing.",
+      details: { missing: missingKeys, modelDefault: openAiModel(), reasoningDefault: openAiReasoningEffort() },
     });
   }
 
   try {
     const { latencyMs, result } = await timed(() =>
-      fetchFeatherlessChatCompletion({
-        model: envValue("FEATHERLESS_MODEL"),
-        messages: [
-          {
-            role: "system",
-            content: "You are a terse diagnostics endpoint. Return only the requested text.",
-          },
-          {
-            role: "user",
-            content: "Return exactly: Augur diagnostics online",
-          },
+      fetchOpenAiResponse({
+        input: [
+          { role: "system", content: "Return only the requested text." },
+          { role: "user", content: "Return exactly: Augur OpenAI online" },
         ],
-        max_tokens: 128,
-        temperature: 0,
+        max_output_tokens: 128,
       })
     );
-
-    const body = asRecord(result.body);
-    const choices = Array.isArray(body?.choices) ? body.choices : [];
-    const firstChoice = asRecord(choices[0]);
-    const message = asRecord(firstChoice?.message);
-    const content = typeof message?.content === "string" ? message.content : "";
-    const reasoning = typeof message?.reasoning === "string" ? message.reasoning : "";
-
     if (!result.ok) {
       return fail({
-        id: "featherless-chat",
-        service: "Featherless",
-        label: "Chat completion",
-        summary: "Featherless returned an error for a basic chat completion.",
+        id: "openai-basic",
+        service: "OpenAI",
+        label: "Responses API",
+        summary: "OpenAI returned an error for a basic Responses API call.",
         latencyMs,
-        details: { status: result.status, statusText: result.statusText },
+        details: { status: result.status, statusText: result.statusText, model: openAiModel(), reasoning: openAiReasoningEffort() },
         error: bodyMessage(result.body) ?? result.textPreview,
       });
     }
-
     return pass({
-      id: "featherless-chat",
-      service: "Featherless",
-      label: "Chat completion",
-      summary: "Featherless accepted a basic OpenAI-compatible chat completion.",
+      id: "openai-basic",
+      service: "OpenAI",
+      label: "Responses API",
+      summary: "OpenAI Responses API accepted the configured model and reasoning effort.",
       latencyMs,
-      details: {
-        model: body?.model,
-        choiceCount: choices.length,
-        usageKeys: Object.keys(asRecord(body?.usage) ?? {}),
-        reasoningPresent: reasoning.length > 0,
-      },
-      sample: { content: content.slice(0, 300) },
+      details: { model: asRecord(result.body)?.model, reasoning: openAiReasoningEffort() },
+      sample: { output: responseOutputText(result.body).slice(0, 300) },
     });
   } catch (error) {
     return fail({
-      id: "featherless-chat",
-      service: "Featherless",
-      label: "Chat completion",
-      summary: "Featherless chat request failed before returning usable data.",
+      id: "openai-basic",
+      service: "OpenAI",
+      label: "Responses API",
+      summary: "OpenAI basic request failed before returning usable data.",
       error: error instanceof Error ? error.message : String(error),
     });
   }
 }
 
-async function checkFeatherlessToolCalling(): Promise<DiagnosticCheck> {
-  const missingKeys = missing(["FEATHERLESS_API_KEY", "FEATHERLESS_MODEL"]);
+async function checkOpenAiStructuredOutput(): Promise<DiagnosticCheck> {
+  const missingKeys = missing(["OPENAI_API_KEY"]);
   if (missingKeys.length > 0) {
     return fail({
-      id: "featherless-tools",
-      service: "Featherless",
-      label: "Tool calling",
-      summary: "Featherless tool-call check cannot run because required env is missing.",
+      id: "openai-structured-output",
+      service: "OpenAI",
+      label: "Structured output",
+      summary: "OpenAI structured-output check cannot run because required env is missing.",
       details: { missing: missingKeys },
     });
   }
-
   try {
     const { latencyMs, result } = await timed(() =>
-      fetchFeatherlessChatCompletion({
-        model: envValue("FEATHERLESS_MODEL"),
-        messages: [
-          {
-            role: "user",
-            content:
-              "What's the weather like in San Francisco? Use the get_current_weather tool.",
-          },
-        ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "get_current_weather",
-              description: "Get the current weather in a given location",
-              parameters: {
+      fetchOpenAiResponse(
+        {
+          input: [
+            { role: "system", content: "Return the requested JSON only." },
+            { role: "user", content: "Create an Augur diagnostic status object." },
+          ],
+          text: {
+            format: {
+              type: "json_schema",
+              name: "augur_diagnostic_status",
+              strict: true,
+              schema: {
                 type: "object",
+                additionalProperties: false,
                 properties: {
-                  location: {
-                    type: "string",
-                    description: "The city and state, e.g. San Francisco, CA",
-                  },
-                  unit: {
-                    type: "string",
-                    enum: ["celsius", "fahrenheit"],
-                    description: "The unit of temperature",
-                  },
+                  status: { type: "string", enum: ["online"] },
+                  provider: { type: "string" },
+                  reasoning_effort: { type: "string" },
                 },
-                required: ["location"],
+                required: ["status", "provider", "reasoning_effort"],
               },
             },
           },
-        ],
-        max_tokens: 512,
-      })
+          max_output_tokens: 256,
+        },
+        45_000
+      )
     );
-
-    const body = asRecord(result.body);
-    const choices = Array.isArray(body?.choices) ? body.choices : [];
-    const message = asRecord(asRecord(choices[0])?.message);
-    const toolCalls = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
-
     if (!result.ok) {
-      return warn({
-        id: "featherless-tools",
-        service: "Featherless",
-        label: "Tool calling",
-        summary:
-          "Featherless basic chat can still be used, but this model/provider rejected the tool-call probe.",
+      return fail({
+        id: "openai-structured-output",
+        service: "OpenAI",
+        label: "Structured output",
+        summary: "OpenAI returned an error for the structured-output probe.",
         latencyMs,
         details: { status: result.status, statusText: result.statusText },
         error: bodyMessage(result.body) ?? result.textPreview,
       });
     }
-
-    if (toolCalls.length === 0) {
-      return warn({
-        id: "featherless-tools",
-        service: "Featherless",
-        label: "Tool calling",
-        summary:
-          "Featherless returned a response, but no native tool call was emitted for the official weather-tool probe.",
-        latencyMs,
-        details: { choiceCount: choices.length },
-        sample: sampleRecord(message),
-      });
-    }
-
-    const toolCall = asRecord(toolCalls[0]);
-    const toolFunction = asRecord(toolCall?.function);
-    const toolArguments =
-      typeof toolFunction?.arguments === "string"
-        ? JSON.parse(toolFunction.arguments)
-        : {};
-    const toolResult = {
-      location:
-        typeof asRecord(toolArguments)?.location === "string"
-          ? asRecord(toolArguments)?.location
-          : "San Francisco, CA",
-      temperature: "72",
-      unit:
-        typeof asRecord(toolArguments)?.unit === "string"
-          ? asRecord(toolArguments)?.unit
-          : "fahrenheit",
-      forecast: ["sunny", "windy"],
-      source: "diagnostic mock",
-    };
-    const finalResponse = await fetchFeatherlessChatCompletion({
-      model: envValue("FEATHERLESS_MODEL"),
-      messages: [
-        {
-          role: "user",
-          content:
-            "What's the weather like in San Francisco? Use the get_current_weather tool.",
-        },
-        message,
-        {
-          tool_call_id: toolCall?.id,
-          role: "tool",
-          name: toolFunction?.name,
-          content: JSON.stringify(toolResult),
-        },
-      ],
-      max_tokens: 512,
-    });
-    const finalBody = asRecord(finalResponse.body);
-    const finalChoices = Array.isArray(finalBody?.choices) ? finalBody.choices : [];
-    const finalMessage = asRecord(asRecord(finalChoices[0])?.message);
-
-    if (!finalResponse.ok) {
-      return warn({
-        id: "featherless-tools",
-        service: "Featherless",
-        label: "Tool calling",
-        summary:
-          "Featherless emitted a native tool call, but rejected the follow-up tool result message.",
-        latencyMs,
-        details: {
-          toolCallCount: toolCalls.length,
-          firstToolName: toolFunction?.name,
-          finalStatus: finalResponse.status,
-        },
-        error: bodyMessage(finalResponse.body) ?? finalResponse.textPreview,
-        sample: toolCalls.slice(0, 2),
-      });
-    }
-
+    const text = responseOutputText(result.body);
+    const parsed = JSON.parse(text);
     return pass({
-      id: "featherless-tools",
-      service: "Featherless",
-      label: "Tool calling",
-      summary:
-        "Featherless emitted an OpenAI-style tool call and accepted the tool result follow-up.",
+      id: "openai-structured-output",
+      service: "OpenAI",
+      label: "Structured output",
+      summary: "OpenAI produced schema-conformant JSON through Responses API text.format.",
       latencyMs,
-      details: {
-        toolCallCount: toolCalls.length,
-        firstToolName: toolFunction?.name,
-        finalChoiceCount: finalChoices.length,
-      },
-      sample: {
-        toolCalls: toolCalls.slice(0, 2),
-        toolResult,
-        finalContent:
-          typeof finalMessage?.content === "string"
-            ? finalMessage.content.slice(0, 500)
-            : undefined,
-      },
+      details: { model: asRecord(result.body)?.model },
+      sample: parsed,
     });
   } catch (error) {
-    return warn({
-      id: "featherless-tools",
-      service: "Featherless",
-      label: "Tool calling",
-      summary: "Featherless tool-call request failed before returning usable data.",
+    return fail({
+      id: "openai-structured-output",
+      service: "OpenAI",
+      label: "Structured output",
+      summary: "OpenAI structured-output request failed before returning usable data.",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function checkOpenAiReportGeneration(): Promise<DiagnosticCheck> {
+  const missingKeys = missing(["OPENAI_API_KEY"]);
+  if (missingKeys.length > 0) {
+    return fail({
+      id: "openai-report-generation",
+      service: "OpenAI",
+      label: "Report generation",
+      summary: "OpenAI report-generation check cannot run because required env is missing.",
+      details: { missing: missingKeys },
+    });
+  }
+  try {
+    const { latencyMs, result } = await timed(() =>
+      fetchOpenAiResponse(
+        {
+          input: [
+            {
+              role: "system",
+              content: "Write concise markdown only. Use the exact headings requested.",
+            },
+            {
+              role: "user",
+              content:
+                "Write a tiny Augur memo with headings ## Executive Summary and ## Evidence and Sources. Cite evidence ID ev_demo_1. No legal advice.",
+            },
+          ],
+          max_output_tokens: 900,
+        },
+        60_000
+      )
+    );
+    if (!result.ok) {
+      return fail({
+        id: "openai-report-generation",
+        service: "OpenAI",
+        label: "Report generation",
+        summary: "OpenAI returned an error for the report-generation probe.",
+        latencyMs,
+        details: { status: result.status, statusText: result.statusText },
+        error: bodyMessage(result.body) ?? result.textPreview,
+      });
+    }
+    const markdown = responseOutputText(result.body);
+    const hasHeadings = markdown.includes("## Executive Summary") && markdown.includes("## Evidence and Sources");
+    return hasHeadings
+      ? pass({
+          id: "openai-report-generation",
+          service: "OpenAI",
+          label: "Report generation",
+          summary: "OpenAI generated markdown with required memo headings.",
+          latencyMs,
+          details: { model: asRecord(result.body)?.model },
+          sample: markdown.slice(0, 700),
+        })
+      : warn({
+          id: "openai-report-generation",
+          service: "OpenAI",
+          label: "Report generation",
+          summary: "OpenAI responded, but the markdown did not include both diagnostic headings.",
+          latencyMs,
+          sample: markdown.slice(0, 700),
+        });
+  } catch (error) {
+    return fail({
+      id: "openai-report-generation",
+      service: "OpenAI",
+      label: "Report generation",
+      summary: "OpenAI report-generation request failed before returning usable data.",
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -1323,6 +1301,9 @@ export async function runDiagnostics(): Promise<DiagnosticsReport> {
     environment,
     supabaseServiceRole,
     supabaseAnon,
+    openAiBasic,
+    openAiStructuredOutput,
+    openAiReportGeneration,
     exaSearch,
     openStates,
     openStatesBills,
@@ -1342,6 +1323,9 @@ export async function runDiagnostics(): Promise<DiagnosticsReport> {
     checkEnvironment(),
     checkSupabaseServiceRole(),
     checkSupabaseAnon(),
+    checkOpenAiBasic(),
+    checkOpenAiStructuredOutput(),
+    checkOpenAiReportGeneration(),
     checkExaSearch(),
     checkOpenStates(),
     checkOpenStatesBills(),
@@ -1397,15 +1381,13 @@ export async function runDiagnostics(): Promise<DiagnosticsReport> {
     ),
   ]);
 
-  const featherlessChat = await checkFeatherlessChat();
-  const featherlessToolCalling = await checkFeatherlessToolCalling();
-
   const checks = [
     environment,
     supabaseServiceRole,
     supabaseAnon,
-    featherlessChat,
-    featherlessToolCalling,
+    openAiBasic,
+    openAiStructuredOutput,
+    openAiReportGeneration,
     exaSearch,
     openStates,
     openStatesBills,

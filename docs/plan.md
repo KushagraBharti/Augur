@@ -224,7 +224,7 @@ load company profile
 
 Augur’s data architecture should use each source for what it is best at.
 
-OpenStates is best for structured bill metadata. Texas Legislature Online is best for official Texas documents. TLO RSS is best for change detection. Texas Ethics Commission is best for lobbying/influence snapshots. Socrata-style city portals are best for Austin and Dallas datasets. CKAN-style portals are useful for San Antonio and Houston. Exa/web search is a fallback research tool when structured public data is incomplete.
+OpenStates is best for structured bill metadata. Texas Legislature Online is best for official Texas documents. TLO RSS is best for change detection. Texas Ethics Commission is best for lobbying/influence snapshots. Socrata-style city portals are best for Austin and Dallas datasets. CKAN-style portals are useful for San Antonio and Houston. Exa/web search is a bounded secondary research tool when structured public data is incomplete.
 
 This is intentionally not “scrape everything.” The hierarchy is:
 
@@ -395,7 +395,7 @@ If the datastore endpoint is not enabled or is inconvenient, the worker can down
 
 ## 6.10 Exa/web research
 
-Exa or another web-search API should be available to the agent as a research fallback. It should not replace official data sources. It should be used when the agent needs context, public official pages, committee pages, agency descriptions, or news/background context.
+Exa or another web-search API should be available to the agent as bounded secondary research. It should not replace official data sources. It should be used when the agent needs context, public official pages, committee pages, agency descriptions, or news/background context.
 
 The agent should treat web results as lower-confidence unless they are official sources.
 
@@ -2185,15 +2185,16 @@ These decisions supersede older exploratory notes in `transcript.md`.
 - Cached real public records are acceptable when live sources fail, if the run clearly says that cached data was used and confidence is adjusted.
 - Failed source calls should appear in the activity log and lower confidence when relevant instead of silently disappearing.
 - Include TEC lobbying records and campaign-finance data in the data pass, prioritizing the cleanest public downloads first.
-- The agent assigns signal scores through the `update_signal_scores` tool. The backend validates schema, score bounds, and evidence IDs, but does not enforce a deterministic formula range.
+- The agent assigns signal scores through the `update_signal_scores` tool. The backend validates schema, score bounds, and evidence IDs, but does not enforce a fixed formula range.
 - Start score history at city level. Add district-level score history after the city-level flow works.
 - Generate one final report at the end of a run. During the run, show polished activity summaries, not draft report sections.
 - The activity log should be production-readable: high-level steps, source names, short query summaries, links opened, evidence IDs, timestamps, and status. Raw JSON can remain hidden behind deeper debugging views.
 - Use "Response Plan" as the product language. Avoid user-facing "lobbying strategy" framing.
 - Miro is completely last and should not block the core dashboard, data, agent, MCP, or skill work.
-- Use Exa as the preferred web research API when configured. Fallback web research should stay bounded to live official public pages.
-- Use Featherless as the primary LLM API provider through its OpenAI-compatible API. The target model is Kimi K2.6 if Featherless exposes it with the required tool-calling and thinking behavior.
-- Use modest/medium thinking if Kimi thinking controls are available. Before depending on Kimi thinking mode in production, verify the exact Featherless request shape for tool calling, reasoning/thinking output, token limits, and any `extra_body` support. If thinking mode or tool calling is not cleanly supported through Featherless, fall back to Kimi without thinking while keeping the provider abstraction.
+- Use Exa as the preferred web research API when configured. Secondary web research should stay bounded to live official public pages.
+- Use the native OpenAI API as the primary LLM provider. The target MVP model is `gpt-5.4-mini` because it is faster and cheaper than the frontier model while still supporting reasoning, function calling, structured outputs, and the Responses API.
+- Use medium reasoning effort for Augur analysis and report synthesis by default. Keep the provider wrapper clean enough to move later to `gpt-5.5` or another stronger OpenAI model without rewriting the agent runtime.
+- Native OpenAI is the only MVP model path. Legacy provider code should not complicate the OpenAI path.
 
 ## 20.2 Current canonical architecture
 
@@ -2234,7 +2235,7 @@ The reason this is the correct production design is that Augur's job is to analy
 - Normalization logic.
 - Evidence creation helpers.
 - Agent tool implementations.
-- Provider wrapper for Featherless/Kimi.
+- Provider wrapper for native OpenAI API calls.
 - Report and score validation schemas.
 
 `workers` owns:
@@ -2304,7 +2305,7 @@ Ask Mode should run like this:
 2. Vercel creates an agent_runs row with mode = ask and status = queued.
 3. Railway worker claims the queued run and sets status = running.
 4. Worker loads company profile, source registry, prior scores, and user prompt.
-5. Worker calls Featherless/Kimi through the provider abstraction.
+5. Worker calls OpenAI through the provider abstraction.
 6. Model chooses bounded tools.
 7. Each tool writes an agent_tool_calls row with a production-readable summary.
 8. Tool outputs return compact summaries, evidence IDs, and source links, not massive raw datasets.
@@ -2321,30 +2322,47 @@ The frontend should poll every few seconds for run progress. Supabase Realtime i
 
 ## 20.6 LLM provider strategy
 
-Featherless is the primary inference provider because it exposes an OpenAI-compatible API and gives access to open models. The app should not hardwire vendor assumptions into business logic. Instead, implement a small provider wrapper that can:
+The primary LLM provider is now the native OpenAI API. The MVP target model is `gpt-5.4-mini` with medium reasoning effort.
 
-- Set `baseURL` to `https://api.featherless.ai/v1`.
-- Use `FEATHERLESS_API_KEY`.
-- Select `FEATHERLESS_MODEL`, initially targeting Kimi K2.6 if available.
-- Pass tools/function definitions through the OpenAI-compatible chat completions API.
-- Attempt modest/medium thinking mode when supported.
-- Cap output tokens so thinking does not run away.
-- Fall back to non-thinking mode if thinking/tool-calling behavior is not reliable.
-- Preserve a clean interface so the provider can be swapped later without rewriting Augur tools.
+Reason for the switch:
 
-The first implementation should include a provider verification script or route that tests:
+- Legacy provider experiments worked for basic chat, but report generation and long synthesis repeatedly timed out or forced backup generation.
+- Native OpenAI support gives Augur the API behavior the product actually needs: reliable reasoning controls, function calling, structured outputs, and stronger long-form synthesis.
+- `gpt-5.4-mini` is the right starting point for hackathon speed/cost. It can later be swapped to `gpt-5.5` for higher-quality production output if needed.
+
+Implementation rules:
+
+- Add `OPENAI_API_KEY` and `OPENAI_MODEL`.
+- Default `OPENAI_MODEL` to `gpt-5.4-mini`.
+- Default reasoning effort to `medium`.
+- Use OpenAI's current recommended API surface after checking official docs before implementation.
+- Prefer the Responses API if it gives the cleanest reasoning/tool/structured-output behavior.
+- Chat Completions is acceptable only if it is simpler and still supports the needed tools and structured outputs.
+- Keep a small provider abstraction, but do not let provider abstraction slow the MVP.
+- Legacy provider code should not remain on the critical path.
+- Legacy provider code should stay out of the MVP runtime after the native OpenAI path works.
+
+The OpenAI provider verification script or diagnostics route must test:
 
 ```txt
 basic chat completion
 tool calling
 multi-step tool calling
-thinking/reasoning response shape, if exposed
+medium reasoning configuration
+structured JSON output
+full markdown report generation
 max token behavior
 error format
 timeout behavior
 ```
 
-If Kimi K2.6 through Featherless cannot do both thinking and tool calling cleanly, the product should prefer reliable tool calling over thinking. The demo can still mention Kimi/Featherless if that path is used, but Augur's core value is the evidence-backed workflow, not a decorative model feature.
+The report path should restore full output quality:
+
+- Do not shrink the report into a tiny synthesis just to avoid provider timeouts.
+- Keep all required report sections.
+- Let `gpt-5.4-mini` write the full memo from the evidence packet.
+- A successful report should save `summary_json.generated_by` as `openai_gpt_5_4_mini` or `openai_model_repaired`.
+- If report generation fails validation after one repair call, fail the run visibly with the exact error/warning.
 
 ## 20.7 Data-source priority and depth
 
@@ -2388,7 +2406,7 @@ The model assigns scores using the `update_signal_scores` tool. The backend vali
 - City and geo fields are valid.
 - Reasoning summary is present.
 
-The backend should not force a deterministic formula range in the MVP. Formula examples in this plan are rubrics and explanation anchors, not strict gatekeepers. Later, deterministic pre-scores can be added as inputs to the model, but the final MVP score write is agent-assigned and evidence-validated.
+The backend should not force a fixed formula range in the MVP. Formula examples in this plan are rubrics and explanation anchors, not strict gatekeepers. Later, rubric pre-scores can be added as inputs to the model, but the final MVP score write is agent-assigned and evidence-validated.
 
 Start with city-level score history. Add council-district score history once city-level flow works end to end.
 
@@ -2444,8 +2462,9 @@ Expected environment variables:
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
-FEATHERLESS_API_KEY
-FEATHERLESS_MODEL
+OPENAI_API_KEY
+OPENAI_MODEL
+OPENAI_REASONING_EFFORT
 OPENSTATES_API_KEY
 EXA_API_KEY
 SOCRATA_APP_TOKEN
@@ -2465,6 +2484,8 @@ MIRO_ACCESS_TOKEN
 ```
 
 Vercel should receive frontend-safe variables and server route variables. Railway should receive service-role and ingestion/worker variables. Secrets should not be committed.
+
+`OPENAI_MODEL` should default to `gpt-5.4-mini`. `OPENAI_REASONING_EFFORT` should default to `medium`.
 
 ## 20.13 MVP acceptance criteria
 
@@ -2489,6 +2510,209 @@ MCP server exposes Augur tools.
 Augur skill exists and explains safe/source-backed usage.
 No hardcoded fake recommendation, fake bill, fake alert, or fake replay fixture exists.
 ```
+
+## 20.14 Agent depth requirements
+
+The current MVP direction requires a much deeper agent than a shallow markdown generator. Augur must feel like a bounded professional analyst that can inspect records, keep state across the run, explain uncertainty, and produce consultant-grade deliverables.
+
+Important distinction:
+
+- Augur does not need a terminal or general sandbox.
+- Augur does need a rich, explicit tool surface.
+- The worker owns tool execution.
+- The LLM chooses requested actions and writes analysis.
+- The application validates tool requests, bounds score writes, persists evidence, and keeps the full run history.
+
+Every agent run must have a mode-specific prompt. The Analysis Runner and Live Monitor cannot share a tiny generic system prompt.
+
+### Analysis Runner context
+
+The first LLM call for Analysis Runner must include a full context packet, not just the user prompt. At minimum it should include:
+
+```json
+{
+  "mode": "analysis_runner",
+  "company": {
+    "profile": "business profile, vertical, size, operating model, expansion goals",
+    "constraints": "capital limits, location constraints, timing, risk tolerance",
+    "demo_context": "LoneStar Retail Group when applicable"
+  },
+  "user_objective": "the exact user ask",
+  "decision_frame": {
+    "decision": "which market/product/location/policy move should the company make",
+    "required_output": "recommendation, reasoning, risks, evidence, response plan"
+  },
+  "source_registry": "available public sources and what each source is useful for",
+  "known_city_depth": "Austin deepest; Dallas and San Antonio lighter; Houston lower confidence if source coverage is messy",
+  "prior_scores": "latest city/company signal scores when available",
+  "prior_reports": "brief references to prior Augur reports when available",
+  "tool_policy": "call tools before making claims; cite evidence IDs; log failures"
+}
+```
+
+The report must be substantially complete. It should read like a professional consultant's expansion/risk memo, not a demo placeholder. It should include:
+
+- executive recommendation;
+- company-specific assumptions;
+- city-by-city comparison;
+- market and permitting signal interpretation;
+- zoning and land-use implications;
+- policy risks and near-term watch items;
+- lobbying/response-plan section framed as lawful stakeholder outreach;
+- contacts or contact paths when available from official/public sources or web research;
+- draft emails/talking points where useful;
+- suggested public messaging or social campaign concepts where useful;
+- evidence table;
+- confidence and uncertainty.
+
+The Analysis Runner may draft artifacts but must not send emails, post social content, create accounts, buy ads, or automate engagement. Those actions can be represented as drafts, checklists, approval queues, or exportable recommendations only.
+
+### Live Monitor context
+
+The Live Monitor is not just the Analysis Runner on a schedule. It is a standing surveillance workflow for the company.
+
+The first LLM call for a monitor run must include:
+
+```json
+{
+  "mode": "live_monitor",
+  "company": "full company dossier",
+  "watchlist": "cities, districts, policy topics, source types, keywords",
+  "last_run_summary": "what was last checked and what changed",
+  "new_records": "records discovered by the scheduled ingestion pass",
+  "source_failures": "sources that failed or degraded",
+  "alert_thresholds": "when to produce a signal brief or score update",
+  "required_output": "triage, evidence, impact, response plan, drafted next steps"
+}
+```
+
+The monitor should:
+
+- scan for new legislative, city, lobbying, campaign-finance, and web-research signals;
+- identify what changed since the previous run;
+- decide whether the change matters to the company;
+- create an alert only when the signal clears a meaningful threshold;
+- update signal scores through the bounded score tool;
+- write an activity timeline;
+- save a signal brief;
+- draft recommended response assets when there is a real action path.
+
+Monitor deliverables should include:
+
+- signal title;
+- severity;
+- company relevance;
+- affected cities or districts;
+- policy/market interpretation;
+- evidence;
+- recommended response;
+- outreach/contact path;
+- draft email or talking points when useful;
+- social/public messaging concept when useful;
+- confidence and uncertainty;
+- next monitor check.
+
+### Run memory and stateless LLM requirement
+
+LLMs are stateless. Augur must explicitly pass the relevant run state every time it calls the model.
+
+For every multi-step agent call, messages should include:
+
+```txt
+system prompt
+developer/application policy if used
+initial context packet
+user objective
+assistant planning/tool request
+tool result
+assistant updated reasoning/action request
+tool result
+...
+final report request
+```
+
+The worker must persist the run transcript in database rows or structured JSON so that every subsequent LLM call can include the important prior messages, tool calls, tool outputs, evidence IDs, failures, and score updates. Do not assume the model remembers anything not included in the current request.
+
+### Tool-Calling And Report Failure
+
+Native OpenAI is the primary path. `gpt-5.4-mini` should be used for the tool/action loop and final memo generation with medium reasoning effort.
+
+Implementation rule:
+
+- Prefer native tool calls when the provider returns valid `tool_calls`.
+- If native tool calls are unreliable in a specific request, use structured JSON action output.
+- Validate every model-requested action against local schemas before execution.
+- Never let model text directly mutate database state.
+- Keep model-requested tool execution bounded and validated. If report generation fails validation after one repair call, fail the run visibly.
+- Keep the provider abstraction so the model can change from `gpt-5.4-mini` to `gpt-5.5` without rewriting the agent runtime.
+
+### Required richer tool surface
+
+The tool layer should grow beyond the initial probes. It should include both discovery tools and synthesis/drafting tools:
+
+```txt
+get_company_dossier
+list_available_sources
+search_texas_bills
+get_texas_bill_documents
+search_tlo_rss
+search_lobby_activity
+search_campaign_finance
+query_city_dataset
+inspect_city_record
+web_research
+find_public_contact_paths
+update_signal_scores
+draft_outreach_email
+draft_talking_points
+draft_social_campaign
+suggest_visual_assets
+save_markdown_report
+finish_investigation
+```
+
+Drafting tools do not execute external actions. They create reviewed artifacts in the report or database.
+
+## 20.15 Product and UI correction
+
+Augur must not collapse the whole product into one page. The product needs clear, dedicated routes because auth, onboarding, dashboard, runs, and reports are separate mental models.
+
+Required route behavior:
+
+```txt
+/login                 dedicated login page
+/signup                dedicated signup page
+/onboarding            dedicated company setup page
+/dashboard             main overview dashboard after login
+/runs                  analysis runner start/history
+/runs/[id]             live run progress and activity
+/reports/[id]          full report reader
+/diagnostics           setup/API diagnostics
+```
+
+The dashboard is the first real product screen after auth. It should show the Texas map, city signal summary, latest run/report, monitor status, and evidence-backed signal cards. It should not be a marketing page, a giant form, or a single-page demo collage.
+
+Desktop quality matters first. Mobile can be acceptable later, but the hackathon demo should feel like a serious desktop operations tool:
+
+- restrained, dense, business-focused layout;
+- readable tables and panels;
+- no giant cheap hero UI inside the app;
+- no cramped card-in-card dashboard;
+- no decorative design that hides data;
+- strong report reading experience;
+- visible agent activity that summarizes tools, evidence, and progress.
+
+The run detail page should show the agent doing real work:
+
+- current status;
+- step timeline;
+- source calls;
+- evidence found;
+- score updates;
+- failures/degraded sources;
+- final report link.
+
+The report page should be a polished intelligence memo, not raw markdown dumped into a narrow card.
 
 [1]: https://miro.com/marketplace/miro-mcp-for-openai-codex/?utm_source=chatgpt.com "Miro MCP for OpenAI Codex"
 [2]: https://docs.openstates.org/api-v3/?utm_source=chatgpt.com "API v3 Overview - Open States"

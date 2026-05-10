@@ -13,10 +13,10 @@ Current setup status:
 - Vercel CLI is linked to project `augur-texas-intelligence-for-businesses`.
 - Supabase CLI is linked to project ref `tsikkexwjfbfafwmolna`.
 - Railway CLI is linked to project `Augur`, environment `production`, service `augur-worker`.
-- Railway service `augur-mcp` exists in the same `Augur` project. It has baseline Supabase/app/model variables but should not be deployed until the MCP server implementation has a real start command.
-- Vercel production env currently has Supabase vars, `APP_BASE_URL`, and `FEATHERLESS_MODEL`.
-- Railway `augur-worker` currently has Supabase vars, Railway platform vars, `APP_BASE_URL`, and `FEATHERLESS_MODEL`.
-- Railway `augur-mcp` currently has baseline Supabase vars, Railway platform vars, `APP_BASE_URL`, `FEATHERLESS_MODEL`, and `MCP_SERVICE_NAME`.
+- Railway service `augur-mcp` exists in the same `Augur` project. It has baseline Supabase/app/model variables and the `mcp` workspace now has a real `npm run start` command for the stdio MCP server.
+- Vercel production env should have Supabase vars, `APP_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_REASONING_EFFORT`.
+- Railway `augur-worker` should have Supabase vars, Railway platform vars, `APP_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_REASONING_EFFORT`.
+- Railway `augur-mcp` should have baseline Supabase vars, Railway platform vars, `APP_BASE_URL`, OpenAI model vars, and `MCP_SERVICE_NAME`.
 
 ## Decision
 
@@ -60,7 +60,7 @@ Use Vercel MCP for Codex-driven project/deployment/log/docs operations. Vercel r
 Required before the full agent can run:
 
 ```txt
-FEATHERLESS_API_KEY
+OPENAI_API_KEY
 OPENSTATES_API_KEY
 EXA_API_KEY
 SOCRATA_APP_TOKEN
@@ -81,10 +81,11 @@ VERCEL_TOKEN
 RAILWAY_TOKEN
 ```
 
-`FEATHERLESS_MODEL` is not secret. The current target value is:
+OpenAI model variables are not secret. The current target values are:
 
 ```txt
-FEATHERLESS_MODEL=moonshotai/Kimi-K2.6
+OPENAI_MODEL=gpt-5.4-mini
+OPENAI_REASONING_EFFORT=medium
 ```
 
 `VERCEL_TOKEN` and `RAILWAY_TOKEN` are not needed for normal local CLI work while the user is logged in. They are only needed for CI or programmatic automation that cannot use the existing authenticated CLI session.

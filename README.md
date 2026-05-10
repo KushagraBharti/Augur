@@ -45,6 +45,15 @@ That starts:
 
 The dev runner loads root `.env.local` and passes it to every service.
 
+For Railway live monitoring, set these on the `augur-worker` service:
+
+```text
+AUGUR_LIVE_MONITOR_ENABLED=true
+AUGUR_LIVE_MONITOR_MIN_HOURS=20
+```
+
+The worker will queue at most one LoneStar Live Monitor run within that window, then execute it through the same bounded Augur Analyst pipeline as manual runs.
+
 ## Diagnostics
 
 After `npm run dev`, open:
@@ -53,7 +62,34 @@ After `npm run dev`, open:
 http://localhost:3000/diagnostics
 ```
 
-This tests Supabase, Featherless, Exa, OpenStates, Socrata, Apify, and public Texas data sources without exposing secret values in the browser.
+This tests Supabase, OpenAI, Exa, OpenStates, Socrata, Apify, and public Texas data sources without exposing secret values in the browser.
+
+## MCP
+
+Augur exposes a bounded MCP server from `mcp/src/index.js`. It uses the same shared runtime and demo company data as the dashboard.
+
+Stdio mode:
+
+```bash
+npm --workspace mcp run start
+```
+
+HTTP mode for Railway or local service checks:
+
+```bash
+$env:PORT=3030; npm --workspace mcp run start
+```
+
+Available tools:
+
+- `augur.search_texas_bills`
+- `augur.get_texas_bill_documents`
+- `augur.query_city_dataset`
+- `augur.search_lobby_activity`
+- `augur.compare_expansion_signals`
+- `augur.generate_business_brief`
+
+Available resources include `augur://sources`, `augur://schema`, `augur://company/lonestar-retail-group`, `augur://latest-report`, and `augur://scoring-model`.
 
 ## Useful Commands
 
