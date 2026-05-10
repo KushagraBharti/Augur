@@ -427,6 +427,8 @@ small {
   overflow: hidden;
   border-radius: 8px;
   background:
+    radial-gradient(circle at 52% 54%, rgba(119, 199, 164, 0.09), transparent 34%),
+    radial-gradient(circle at 72% 72%, rgba(224, 186, 117, 0.08), transparent 24%),
     linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
     #0b1013;
@@ -439,20 +441,31 @@ small {
 }
 
 .texasShape {
-  fill: rgba(119, 199, 164, 0.1);
+  fill: url(#texasFill);
   stroke: rgba(192, 225, 211, 0.45);
-  stroke-width: 1.1;
+  stroke-width: 8;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.26));
 }
 
 .mapLine {
   fill: none;
   stroke: rgba(224, 186, 117, 0.45);
-  stroke-dasharray: 2 2;
-  stroke-width: 0.75;
+  stroke-dasharray: 20 18;
+  stroke-linecap: round;
+  stroke-width: 8;
 }
 
 .mapLine.muted {
   stroke: rgba(119, 199, 164, 0.28);
+}
+
+.mapArc {
+  fill: none;
+  stroke: rgba(176, 220, 205, 0.18);
+  stroke-dasharray: 10 20;
+  stroke-linecap: round;
+  stroke-width: 5;
 }
 
 .signalHalo {
@@ -464,7 +477,7 @@ small {
 .cityPoint {
   fill: #e0ba75;
   stroke: #fff2d7;
-  stroke-width: 0.8;
+  stroke-width: 7;
   transition:
     transform 360ms cubic-bezier(0.32, 0.72, 0, 1),
     fill 360ms cubic-bezier(0.32, 0.72, 0, 1);
@@ -476,10 +489,33 @@ small {
   transform: scale(1.08);
 }
 
-.texasMapWrap text {
+.capitalStar {
+  fill: rgba(255, 243, 212, 0.94);
+  stroke: rgba(224, 186, 117, 0.75);
+  stroke-width: 5;
+  transform-origin: center;
+}
+
+.capitalStar.selected {
+  fill: #d8ffe6;
+  stroke: rgba(119, 199, 164, 0.9);
+}
+
+.texasWordmark {
+  fill: rgba(255, 255, 255, 0.075);
+  font-size: 88px;
+  font-weight: 900;
+  letter-spacing: 0.22em;
+}
+
+.cityLabel {
   fill: #e7efe9;
-  font-size: 3.1px;
-  font-weight: 760;
+  font-size: 42px;
+  font-weight: 820;
+  paint-order: stroke fill;
+  stroke: rgba(11, 16, 19, 0.92);
+  stroke-width: 10px;
+  stroke-linejoin: round;
   pointer-events: none;
 }
 
