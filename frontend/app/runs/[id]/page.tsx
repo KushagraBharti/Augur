@@ -101,20 +101,32 @@ export default function RunDetailPage() {
   return (
     <AppShell userEmail={email}>
       <header className="topbar commandTopbar">
-        <div>
+        <div className="titleStack">
+          <p className="breadcrumbLine">Texas Expansion Intelligence / Agent Runs / Run Detail</p>
           <p className="eyebrow">Activity trace</p>
           <h2>Run Detail</h2>
           <p>{state?.run ? cleanText(state.run.user_prompt, 360) : "Loading production run state."}</p>
         </div>
-        <div className="topbarActions">
-          <Link className="secondaryLink" href="/runs">
-            All runs
-          </Link>
-          {state?.report ? (
-            <Link className="actionLink" href={`/reports/${state.report.id}`}>
-              Open report
+        <div className="commandDock" aria-label="Run detail actions">
+          <div className="commandSearch">
+            <span />
+            <p>Search trace, sources, memory</p>
+            <kbd>K</kbd>
+          </div>
+          <div className="topbarActions">
+            <Link className="secondaryLink" href="/runs">
+              All runs
             </Link>
-          ) : null}
+            {state?.report ? (
+              <Link className="actionLink" href={`/reports/${state.report.id}`}>
+                Open report
+              </Link>
+            ) : (
+              <Link className="actionLink" href="/runs">
+                Run analysis
+              </Link>
+            )}
+          </div>
         </div>
       </header>
 
@@ -123,8 +135,8 @@ export default function RunDetailPage() {
 
       {state ? (
         <>
-          <section className="summaryStrip">
-            <div>
+          <section className="summaryStrip runSummaryStrip">
+            <div className="statusSummaryCard">
               <span>Status</span>
               <strong className={statusClass(state.run.status)}>{state.run.status}</strong>
             </div>
@@ -172,8 +184,8 @@ export default function RunDetailPage() {
             <section className="errorBanner">The run failed before saving a final report. No generated backup report was created.</section>
           ) : null}
 
-          <section className="runDetailGrid">
-            <article className="activityPanel">
+          <section className="runDetailGrid commandRunDetailGrid">
+            <article className="activityPanel timelinePanel">
               <div className="sectionHeader">
                 <div>
                   <h3>Analyst Timeline</h3>
@@ -196,7 +208,7 @@ export default function RunDetailPage() {
               </ol>
             </article>
 
-            <aside className="evidencePanel">
+            <aside className="runDetailStack">
               <div className="sectionHeader">
                 <div>
                   <h3>Source Timeline</h3>
@@ -212,8 +224,35 @@ export default function RunDetailPage() {
                     <small className={`checkBadge ${statusClass(call.status)}`}>{call.status}</small>
                   </div>
                 ))}
+                {!sourceCalls.length ? <p className="mutedText">Source calls appear as the analyst reaches public-data collection.</p> : null}
               </div>
+            </aside>
 
+            <aside className="runDetailStack">
+              <div className="sectionHeader">
+                <div>
+                  <h3>Score Updates</h3>
+                  <p className="sectionSubcopy">Bounded city-level score writes tied to this run.</p>
+                </div>
+                <span>{state.scores.length}</span>
+              </div>
+              <div className="scoreUpdateList scoreCardsList">
+                {state.scores.map((score) => (
+                  <div key={score.id ?? score.city}>
+                    <strong>{score.city}</strong>
+                    <p>
+                      Momentum {score.development_momentum} · Zoning {score.zoning_friction}
+                      <br />
+                      Code {score.code_occupancy_risk} · Policy {score.policy_risk}
+                    </p>
+                    <small>{cleanText(score.reasoning_summary, 170) || "Pending verification"}</small>
+                  </div>
+                ))}
+                {!state.scores.length ? <p className="mutedText">No score updates have been written yet.</p> : null}
+              </div>
+            </aside>
+
+            <aside className="runDetailStack">
               <div className="sectionHeader">
                 <div>
                   <h3>Drafted Artifacts</h3>
@@ -229,9 +268,11 @@ export default function RunDetailPage() {
                     <small>Review required. Nothing was sent or posted.</small>
                   </div>
                 ))}
-                {!draftArtifacts.length ? <p className="mutedText">Draft artifacts appear after contacts and response tools run.</p> : null}
+                {!draftArtifacts.length ? <p className="mutedText">No drafted artifacts yet.</p> : null}
               </div>
+            </aside>
 
+            <aside className="runDetailStack memoryPanel">
               <div className="sectionHeader">
                 <div>
                   <h3>Run Memory</h3>
@@ -239,7 +280,7 @@ export default function RunDetailPage() {
                 </div>
                 <span>{runMemory.length}</span>
               </div>
-              <div className="scoreUpdateList">
+              <div className="scoreUpdateList memoryList">
                 {runMemory.slice(-8).map((event, index) => (
                   <div key={`${event.at ?? "memory"}-${index}`}>
                     <strong>{cleanText(event.type ?? event.tool_name ?? "memory", 80)}</strong>
@@ -249,27 +290,9 @@ export default function RunDetailPage() {
                 ))}
                 {!runMemory.length ? <p className="mutedText">Run memory will appear as the analyst context, tools, evidence, scores, and report request are persisted.</p> : null}
               </div>
+            </aside>
 
-              <div className="sectionHeader">
-                <div>
-                  <h3>Score Updates</h3>
-                  <p className="sectionSubcopy">Bounded city-level score writes tied to this run.</p>
-                </div>
-                <span>{state.scores.length}</span>
-              </div>
-              <div className="scoreUpdateList">
-                {state.scores.map((score) => (
-                  <div key={score.id ?? score.city}>
-                    <strong>{score.city}</strong>
-                    <p>
-                      Momentum {score.development_momentum} · Zoning {score.zoning_friction} · Code {score.code_occupancy_risk} · Policy {score.policy_risk}
-                    </p>
-                    <small>{cleanText(score.reasoning_summary, 220)}</small>
-                  </div>
-                ))}
-                {!state.scores.length ? <p className="mutedText">No score updates have been written yet.</p> : null}
-              </div>
-
+            <aside className="runDetailStack">
               <div className="sectionHeader">
                 <div>
                   <h3>Evidence</h3>
@@ -277,24 +300,44 @@ export default function RunDetailPage() {
                 </div>
                 <span>{state.evidence.length}</span>
               </div>
-              <div className="evidenceList">
-                {state.evidence.slice(0, 12).map((item) => (
+              <div className="evidenceList compactEvidenceList">
+                {state.evidence.slice(0, 5).map((item) => (
                   <a href={item.source_url ?? "#"} key={item.id} rel="noreferrer" target="_blank">
-                    <strong>{cleanText(item.title ?? item.source_name ?? "Evidence item", 160)}</strong>
-                    <p>{cleanText(item.excerpt ?? item.summary ?? item.metadata_json?.summary, 300)}</p>
-                    <span>{cleanText(item.source_name ?? item.source_url ?? "public source", 120)}</span>
+                    <strong>{cleanText(item.title ?? item.source_name ?? "Evidence item", 130)}</strong>
+                    <p>{cleanText(item.excerpt ?? item.summary ?? item.metadata_json?.summary, 180)}</p>
+                    <span>{cleanText(item.source_name ?? item.source_url ?? "public source", 90)}</span>
                   </a>
                 ))}
                 {!state.evidence.length ? <p className="mutedText">No evidence rows have been written yet.</p> : null}
               </div>
-              {missingTools.length && state.run.status !== "completed" ? (
-                <div className="missingToolList">
-                  <strong>Remaining workflow</strong>
-                  <p>{missingTools.map((tool) => tool.replaceAll("_", " ")).join(", ")}</p>
+            </aside>
+
+            <aside className="runDetailStack workflowPanel">
+              <div className="sectionHeader">
+                <div>
+                  <h3>Remaining workflow</h3>
+                  <p className="sectionSubcopy">Required bounded tools not yet completed for this run.</p>
                 </div>
-              ) : null}
+                <span>{missingTools.length}</span>
+              </div>
+              {missingTools.length && state.run.status !== "completed" ? (
+                <ul className="workflowList">
+                  {missingTools.slice(0, 8).map((tool) => (
+                    <li key={tool}>{tool.replaceAll("_", " ")}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mutedText">All required workflow stages are complete.</p>
+              )}
             </aside>
           </section>
+
+          {missingTools.length && state.run.status !== "completed" ? (
+            <section className="missingToolList runDetailRemaining">
+              <strong>Full remaining workflow</strong>
+              <p>{missingTools.map((tool) => tool.replaceAll("_", " ")).join(", ")}</p>
+            </section>
+          ) : null}
         </>
       ) : null}
     </AppShell>

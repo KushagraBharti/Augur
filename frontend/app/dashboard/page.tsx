@@ -62,20 +62,27 @@ export default function DashboardPage() {
   return (
     <AppShell userEmail={email}>
       <header className="topbar commandTopbar">
-        <div>
-          <p className="eyebrow">{state?.company?.name ?? "Company workspace"}</p>
-          <h2>Overview</h2>
-          <p>Texas public-data operations console for expansion signals, monitor status, source coverage, and evidence-backed analyst output.</p>
+        <div className="titleStack">
+          <p className="breadcrumbLine">Texas Expansion Intelligence / {state?.company?.name ?? "Workspace"}</p>
+          <h2>Expansion command</h2>
+          <p>Live public-data coverage, ranked market signals, monitor state, and source-backed analyst output for Texas retail expansion decisions.</p>
         </div>
-        <div className="topbarActions">
-          {state?.latestReport ? (
-            <Link className="secondaryLink" href={`/reports/${state.latestReport.id}`}>
-              Latest memo
+        <div className="commandDock" aria-label="Dashboard actions">
+          <div className="commandSearch">
+            <span />
+            <p>Search runs, memos, sources</p>
+            <kbd>K</kbd>
+          </div>
+          <div className="topbarActions">
+            {state?.latestReport ? (
+              <Link className="secondaryLink" href={`/reports/${state.latestReport.id}`}>
+                Latest memo
+              </Link>
+            ) : null}
+            <Link className="actionLink" href="/runs">
+              Run analysis
             </Link>
-          ) : null}
-          <Link className="actionLink" href="/runs">
-            Run analysis
-          </Link>
+          </div>
         </div>
       </header>
 
@@ -85,22 +92,15 @@ export default function DashboardPage() {
       {state ? (
         <>
           <section className="opsStrip">
-            <div>
-              <span>Best current read</span>
-              <strong>{topCity?.city ?? "pending"}</strong>
-            </div>
-            <div>
-              <span>Avg confidence</span>
-              <strong>{averageConfidence}%</strong>
-            </div>
-            <div>
-              <span>Monitor</span>
-              <strong className={state.latestMonitor ? statusClass(state.latestMonitor.status) : ""}>{state.latestMonitor?.status ?? "not run"}</strong>
-            </div>
-            <div>
-              <span>Source classes</span>
-              <strong>{sourceMix.length}</strong>
-            </div>
+            <KpiCard accent="mint" label="Best current read" value={topCity?.city ?? "Pending"} detail={topCity ? `${topCity.confidence ?? 0}% confidence` : "Awaiting score snapshot"} />
+            <KpiCard accent="steel" label="Avg confidence" value={`${averageConfidence}%`} detail="Across monitored cities" />
+            <KpiCard
+              accent={state.latestMonitor ? "mint" : "amber"}
+              label="Monitor"
+              value={state.latestMonitor?.status ?? "Not run"}
+              detail={state.latestMonitor ? formatDate(state.latestMonitor.started_at) : "Queue monitor from Agent Runs"}
+            />
+            <KpiCard accent="mint" label="Source classes" value={String(sourceMix.length)} detail={`${state.sources?.length ?? 0} public sources active`} />
           </section>
 
           <section className="overviewGrid">
@@ -110,7 +110,11 @@ export default function DashboardPage() {
                   <h3>Texas Signal Map</h3>
                   <p className="sectionSubcopy">Austin is deepest; Dallas and San Antonio are comparable; Houston stays lower confidence unless live coverage improves.</p>
                 </div>
-                <span>{selectedCity}</span>
+                <select aria-label="Selected city" value={selectedCity} onChange={(event) => setSelectedCity(event.target.value)}>
+                  {(state.targetCities?.length ? state.targetCities : state.scores.map((score) => score.city)).map((city) => (
+                    <option key={city}>{city}</option>
+                  ))}
+                </select>
               </div>
               <TexasMap selectedCity={selectedCity} onSelectCity={setSelectedCity} />
             </div>
@@ -123,76 +127,11 @@ export default function DashboardPage() {
                 <span>{selectedScore?.confidence ?? 0}% confidence</span>
               </div>
               <ScoreRows score={selectedScore} />
-              <p className="reasoning">{cleanText(selectedScore?.reasoning_summary, 420)}</p>
+              <div className="agentBrief">
+                <span>Agent brief</span>
+                <p>{cleanText(selectedScore?.reasoning_summary, 420)}</p>
+              </div>
             </aside>
-          </section>
-
-          <section className="productGrid">
-            <article className="activityPanel">
-              <div className="sectionHeader">
-                <div>
-                  <h3>Latest Analyst Run</h3>
-                  <p className="sectionSubcopy">Bounded tools, evidence, score writes, and final memo generation.</p>
-                </div>
-                {state.latestRun ? <span className={statusClass(state.latestRun.status)}>{state.latestRun.status}</span> : <span>None</span>}
-              </div>
-              {state.latestRun ? (
-                <>
-                  <p>{cleanText(state.latestRun.user_prompt, 260)}</p>
-                  <p className="mutedText">{formatDate(state.latestRun.started_at)}</p>
-                  <Link className="textLink" href={`/runs/${state.latestRun.id}`}>
-                    View activity trace
-                  </Link>
-                </>
-              ) : (
-                <p className="mutedText">No Augur Analyst run has been created for this company yet.</p>
-              )}
-            </article>
-            <article className="reportPanel compact">
-              <div className="sectionHeader">
-                <div>
-                  <h3>Latest Intelligence Memo</h3>
-                  <p className="sectionSubcopy">{cleanText(state.latestReport?.summary_json?.generated_by ?? "Model-authored report", 80)}</p>
-                </div>
-                {state.latestReport ? <span>{formatDate(state.latestReport.created_at)}</span> : <span>None</span>}
-              </div>
-              {state.latestReport ? (
-                <>
-                  <h4>{state.latestReport.title ?? "Latest Augur report"}</h4>
-                  <p>{cleanText(state.latestReport.markdown, 520)}</p>
-                  <Link className="textLink" href={`/reports/${state.latestReport.id}`}>
-                    Open readable report
-                  </Link>
-                </>
-              ) : (
-                <p className="mutedText">Reports appear after a completed source-backed run.</p>
-              )}
-            </article>
-            <article className="activityPanel">
-              <div className="sectionHeader">
-                <div>
-                  <h3>Monitor Status</h3>
-                  <p className="sectionSubcopy">Daily signal brief path for changes and threshold checks.</p>
-                </div>
-                {state.latestMonitor ? <span className={statusClass(state.latestMonitor.status)}>{state.latestMonitor.status}</span> : <span>Not run</span>}
-              </div>
-              {state.latestMonitor ? (
-                <>
-                  <p>{cleanText(state.latestMonitor.final_summary ?? `${state.latestMonitor.mode} is available from the run trace.`, 260)}</p>
-                  <p className="mutedText">{formatDate(state.latestMonitor.started_at)}</p>
-                  <Link className="textLink" href={`/runs/${state.latestMonitor.id}`}>
-                    Open monitor trace
-                  </Link>
-                </>
-              ) : (
-                <>
-                  <p className="mutedText">Live and replay monitor runs can be queued from Agent Runs.</p>
-                  <Link className="textLink" href="/runs">
-                    Queue monitor
-                  </Link>
-                </>
-              )}
-            </article>
           </section>
 
           <section className="intelGrid">
@@ -226,6 +165,76 @@ export default function DashboardPage() {
               </div>
             </article>
 
+            <aside className="opsColumn">
+              <article className="activityPanel">
+                <div className="sectionHeader">
+                  <div>
+                    <h3>Latest Analyst Run</h3>
+                    <p className="sectionSubcopy">Bounded tools, evidence, score writes, and final memo generation.</p>
+                  </div>
+                  {state.latestRun ? <span className={statusClass(state.latestRun.status)}>{state.latestRun.status}</span> : <span>None</span>}
+                </div>
+                {state.latestRun ? (
+                  <>
+                    <p>{cleanText(state.latestRun.user_prompt, 260)}</p>
+                    <p className="mutedText">{formatDate(state.latestRun.started_at)}</p>
+                    <Link className="textLink" href={`/runs/${state.latestRun.id}`}>
+                      View activity trace
+                    </Link>
+                  </>
+                ) : (
+                  <p className="mutedText">No Augur Analyst run has been created for this company yet.</p>
+                )}
+              </article>
+              <article className="activityPanel">
+                <div className="sectionHeader">
+                  <div>
+                    <h3>Monitor Status</h3>
+                    <p className="sectionSubcopy">Daily signal brief path for changes and threshold checks.</p>
+                  </div>
+                  {state.latestMonitor ? <span className={statusClass(state.latestMonitor.status)}>{state.latestMonitor.status}</span> : <span>Not run</span>}
+                </div>
+                {state.latestMonitor ? (
+                  <>
+                    <p>{cleanText(state.latestMonitor.final_summary ?? `${state.latestMonitor.mode} is available from the run trace.`, 260)}</p>
+                    <p className="mutedText">{formatDate(state.latestMonitor.started_at)}</p>
+                    <Link className="textLink" href={`/runs/${state.latestMonitor.id}`}>
+                      Open monitor trace
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <p className="mutedText">Live and replay monitor runs can be queued from Agent Runs.</p>
+                    <Link className="textLink" href="/runs">
+                      Queue monitor
+                    </Link>
+                  </>
+                )}
+              </article>
+            </aside>
+          </section>
+
+          <section className="productGrid">
+            <article className="reportPanel compact">
+              <div className="sectionHeader">
+                <div>
+                  <h3>Latest Intelligence Memo</h3>
+                  <p className="sectionSubcopy">{cleanText(state.latestReport?.summary_json?.generated_by ?? "Model-authored report", 80)}</p>
+                </div>
+                {state.latestReport ? <span>{formatDate(state.latestReport.created_at)}</span> : <span>None</span>}
+              </div>
+              {state.latestReport ? (
+                <>
+                  <h4>{state.latestReport.title ?? "Latest Augur report"}</h4>
+                  <p>{cleanText(state.latestReport.markdown, 520)}</p>
+                  <Link className="textLink" href={`/reports/${state.latestReport.id}`}>
+                    Open readable report
+                  </Link>
+                </>
+              ) : (
+                <p className="mutedText">Reports appear after a completed source-backed run.</p>
+              )}
+            </article>
             <aside className="activityPanel">
               <div className="sectionHeader">
                 <div>
@@ -255,6 +264,29 @@ export default function DashboardPage() {
         </>
       ) : null}
     </AppShell>
+  );
+}
+
+function KpiCard({
+  accent,
+  label,
+  value,
+  detail,
+}: {
+  accent: "mint" | "amber" | "steel";
+  label: string;
+  value: string;
+  detail: string;
+}) {
+  return (
+    <div className={`kpiCard ${accent}`}>
+      <span className="kpiOrb" />
+      <div>
+        <span>{label}</span>
+        <strong>{value}</strong>
+        <p>{detail}</p>
+      </div>
+    </div>
   );
 }
 

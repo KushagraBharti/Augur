@@ -6,9 +6,9 @@ import { usePathname, useRouter } from "next/navigation";
 import { getSupabaseBrowser } from "../lib/supabase-browser";
 
 const links = [
-  { href: "/dashboard", label: "Overview" },
-  { href: "/runs", label: "Agent Runs" },
-  { href: "/diagnostics", label: "Diagnostics" },
+  { href: "/dashboard", label: "Overview", code: "OV" },
+  { href: "/runs", label: "Agent Runs", code: "AR" },
+  { href: "/diagnostics", label: "Diagnostics", code: "DX" },
 ];
 
 export function AppShell({
@@ -29,24 +29,31 @@ export function AppShell({
   return (
     <div className="appShell">
       <aside className="sideNav">
-        <div>
-          <p className="brandKicker">Texas expansion intelligence</p>
-          <h1>Augur</h1>
+        <div className="navTop">
+          <Link className="brandBlock" href="/dashboard">
+            <span className="brandMark">A</span>
+            <span>
+              <strong>Augur</strong>
+              <small>Texas expansion intelligence</small>
+            </span>
+          </Link>
+          <nav aria-label="Primary navigation">
+            {links.map((link) => (
+              <Link
+                aria-current={pathname.startsWith(link.href) ? "page" : undefined}
+                className={pathname.startsWith(link.href) ? "active" : ""}
+                href={link.href}
+                key={link.href}
+              >
+                <span className="navGlyph">{link.code}</span>
+                <span>{link.label}</span>
+              </Link>
+            ))}
+          </nav>
         </div>
-        <nav aria-label="Primary navigation">
-          {links.map((link) => (
-            <Link
-              aria-current={pathname.startsWith(link.href) ? "page" : undefined}
-              className={pathname.startsWith(link.href) ? "active" : ""}
-              href={link.href}
-              key={link.href}
-            >
-              {link.label}
-            </Link>
-          ))}
-        </nav>
         <div className="sessionBox">
-          <span>{userEmail ?? "Signed in"}</span>
+          <span>Signed in</span>
+          <strong>{userEmail ?? "Workspace user"}</strong>
           <button type="button" onClick={logout}>
             Log out
           </button>
